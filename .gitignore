@@ -2,3 +2,6 @@
 .claude/
 # Fotos de referência de produtos de terceiros: ficam só no computador.
 ref/
+# Arquivos de teste locais
+_teste/
+*.stl

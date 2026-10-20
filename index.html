@@ -337,6 +337,7 @@
     .pip-body { height: 130px; }
     .legend { display: none; }
     .topbar { gap: 8px; padding: 8px 12px; }
+    .slot-main > #sheets { inset: 128px 12px 12px; }   /* abas e ferramentas quebram em duas linhas */
     .export-wrap { order: 1; margin-left: auto; }
     .status { order: 2; flex: 1 1 100%; }
     #fileChip { display: none; }
@@ -445,6 +446,10 @@
         <button class="tile" type="button" data-simp="500" aria-pressed="false" aria-label="Extrema, 500 triângulos"><svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true"><polygon class="shape" points="18,4 31.3,13.7 26.2,29.3 9.8,29.3 4.7,13.7"/></svg><span class="l">Extrema</span></button>
       </div>
       <p class="hint">Deixa o modelo facetado: contornos retos, mais fáceis de cortar e lixar.</p>
+    </div>
+    <div class="stack" style="gap:6px">
+      <label class="check"><input type="checkbox" id="solid">Preencher por dentro (deixar sólido)</label>
+      <p class="hint" id="solidHint">Para STL oco (hollow): ignora a parede interna e corta cada peça inteira, sem o miolo vazado.</p>
     </div>
   </section>
 
@@ -872,6 +877,66 @@ function section(pos, n, c, fr) {
   return C.Clipper.CleanPolygons(union(paths), 0.02 * S);
 }
 
+// STL oco (hollow): cada fatia sai como um anel (parede de fora + parede de dentro).
+// "Preencher por dentro" fica só com os contornos externos, então a peça sai inteira.
+const fillHoles = paths => paths.length ? union(toEx(paths).map(po => po.outer)) : paths;
+function modelSection(n, c, P) {
+  const paths = section(state.pos, n, c, FR[n]);
+  return P.solid ? fillHoles(paths) : paths;
+}
+
+// Separa a malha em "cascas" (partes conectadas) e remove as cavidades: cascas viradas para dentro
+// (volume negativo, a parede interna de um STL oco) ou que ficam inteiras dentro de outra casca.
+function analyzeShells(pos) {
+  const nT = pos.length / 9, map = new Map(), vid = new Uint32Array(nT * 3);
+  let nv = 0;
+  for (let i = 0; i < nT * 3; i++) {
+    const k = pos[i * 3] + ',' + pos[i * 3 + 1] + ',' + pos[i * 3 + 2];
+    let j = map.get(k);
+    if (j === undefined) { j = nv++; map.set(k, j); }
+    vid[i] = j;
+  }
+  const parent = new Int32Array(nv);
+  for (let i = 0; i < nv; i++) parent[i] = i;
+  const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[a] = b; };
+  for (let t = 0; t < nT; t++) { join(vid[t * 3], vid[t * 3 + 1]); join(vid[t * 3 + 1], vid[t * 3 + 2]); }
+  const comps = new Map(), triComp = new Int32Array(nT);
+  for (let t = 0; t < nT; t++) {
+    const r = find(vid[t * 3]);
+    let c = comps.get(r);
+    if (!c) comps.set(r, c = { vol: 0, min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
+    triComp[t] = r;
+    const o = t * 9, a = [pos[o], pos[o + 1], pos[o + 2]], b = [pos[o + 3], pos[o + 4], pos[o + 5]], d = [pos[o + 6], pos[o + 7], pos[o + 8]];
+    c.vol += (a[0] * (b[1] * d[2] - b[2] * d[1]) - a[1] * (b[0] * d[2] - b[2] * d[0]) + a[2] * (b[0] * d[1] - b[1] * d[0])) / 6;
+    for (const p of [a, b, d]) for (let k = 0; k < 3; k++) { if (p[k] < c.min[k]) c.min[k] = p[k]; if (p[k] > c.max[k]) c.max[k] = p[k]; }
+  }
+  const list = [...comps.values()];
+  // Malha inteira "do avesso": vale o sinal da maior casca.
+  const sign = Math.sign(list.reduce((a, b) => Math.abs(b.vol) > Math.abs(a.vol) ? b : a).vol) || 1;
+  const inside = (o, c) => [0, 1, 2].every(k => o.min[k] <= c.min[k] && o.max[k] >= c.max[k]);
+  for (const c of list) c.cavity = c.vol * sign < 0 || list.some(o => o !== c && o.vol * sign > 0 && inside(o, c));
+  const cavities = list.filter(c => c.cavity).length;
+  if (!cavities) return { cavities: 0, solid: pos };
+  const keep = [];
+  for (let t = 0; t < nT; t++) if (!comps.get(triComp[t]).cavity) keep.push(t);
+  const out = new Float32Array(keep.length * 9);
+  keep.forEach((t, i) => out.set(pos.subarray(t * 9, t * 9 + 9), i * 9));
+  return { cavities, solid: out };
+}
+
+// Quanto das fatias do meio do modelo é "vazio por dentro" (0 = maciço, perto de 1 = casca fina).
+function hollowRatio() {
+  let worst = 0;
+  for (let n = 0; n < 3; n++) for (const f of [0.35, 0.5, 0.65]) {
+    const c = state.bbox.min[n] + (state.bbox.max[n] - state.bbox.min[n]) * f;
+    const paths = section(state.pos, n, c, FR[n]);
+    const full = areaMM(fillHoles(paths));
+    if (full > 0) worst = Math.max(worst, 1 - areaMM(paths) / full);
+  }
+  return worst;
+}
+
 // Plano das costas do modelo (onde encosta na parede / na placa).
 const zBack = P => state.bbox.min[2] + P.back * (state.bbox.max[2] - state.bbox.min[2]);
 
@@ -995,13 +1060,13 @@ function addPlaque(pieces, P) {
   // Profundidade onde o modelo já "encosta de verdade": costas arredondadas (pela simplificação ou
   // por um pescoço inclinado) tocam a parede só num ponto. As abas crescem até essa profundidade.
   const depth = state.bbox.max[2] - zb;
-  const ref = areaMM(section(state.pos, 2, zb + depth * 0.08, FR[2]));
-  let zProbe = zb + 0.5, back = section(state.pos, 2, zProbe, FR[2]);
+  const ref = areaMM(modelSection(2, zb + depth * 0.08, P));
+  let zProbe = zb + 0.5, back = modelSection(2, zProbe, P);
   if (!(P.back > 0)) {
     for (const f of [0.01, 0.02, 0.04, 0.06, 0.08]) {
       if (areaMM(back) >= ref * 0.6) break;
       zProbe = zb + Math.max(0.5, depth * f);
-      back = section(state.pos, 2, zProbe, FR[2]);
+      back = modelSection(2, zProbe, P);
     }
   }
   let cx = 0, cy = 0, h;
@@ -1064,7 +1129,7 @@ function genEgg(P) {
   const make = (axis, count, fam) => {
     const out = [];
     for (const c of slicePositions(axis, count, P)) {
-      const paths = wallClip(section(state.pos, axis, c, FR[axis]), axis, c, P);
+      const paths = wallClip(modelSection(axis, c, P), axis, c, P);
       if (areaMM(paths) < minA) continue;
       out.push({ fam, id: fam + (out.length + 1), axis, c, fr: FR[axis], paths, slots: [], mates: [] });
     }
@@ -1111,7 +1176,7 @@ function genStacked(P) {
   const layers = [];
   for (let i = 0; i < count; i++) {
     const c = mn + offset + (i + 0.5) * P.t;
-    layers.push({ c, paths: wallClip(section(state.pos, n, c, FR[n]), n, c, P) });
+    layers.push({ c, paths: wallClip(modelSection(n, c, P), n, c, P) });
   }
   const out = [];
   for (let i = 0; i < count; i++) {
@@ -1671,7 +1736,8 @@ async function simplifyMesh(pos, targetTris) {
 
 async function applySimplify() {
   const target = +$('simp').value;
-  const full = state.rawFull;
+  // "Preencher por dentro": parte da malha sem as cavidades, antes de simplificar.
+  const full = $('solid').checked && state.solidFull ? state.solidFull : state.rawFull;
   if (!target || full.length / 9 <= target) state.raw = full;
   else {
     setStatus('Simplificando a malha…');
@@ -1687,7 +1753,22 @@ async function setModel(positions, name) {
   state.rot.identity();
   state.animateNext = true;
   $('empty3d').hidden = true;
+  // Modelo oco? Mede na malha original (a simplificação estraga a parede interna fina),
+  // liga "Preencher por dentro" sozinho e avisa (a pessoa pode desligar).
+  setStatus('Analisando o modelo…');
+  await new Promise(r => setTimeout(r, 20));
+  const shells = analyzeShells(positions);
+  state.solidFull = shells.solid;
+  state.raw = positions;
+  prepareModel();
+  const hollow = shells.cavities > 0 || hollowRatio() > 0.35;
+  $('solid').checked = hollow;
   await applySimplify();
+  $('solid').checked = hollow;
+  $('solidHint').textContent = hollow
+    ? 'Este STL parece oco: o interior foi preenchido para as peças saírem inteiras. Desmarque se os furos forem de propósito.'
+    : 'Para STL oco (hollow): ignora a parede interna e corta cada peça inteira, sem o miolo vazado.';
+  $('solidHint').style.color = hollow ? 'var(--acc)' : '';
   frameCamera();
   if (showcase.on) applyShowcase(true);
   regenerate();
@@ -1949,7 +2030,7 @@ function params() {
   return {
     dest, mode: dest === 'fdm' ? 'egg' : document.querySelector('input[name=mode]:checked').value,
     plaque: $('plaque').value, pSize: Math.max(20, num('pSize') || 120), pOff: num('pOff') || 0, pBorder: $('pBorder').checked,
-    tp: dest === 'fdm' ? Math.max(0.5, num('tp') || 5) : t, bedZ: num('sz') || 0,
+    tp: dest === 'fdm' ? Math.max(0.5, num('tp') || 5) : t, bedZ: num('sz') || 0, solid: $('solid').checked,
     t, axA: +$('axA').value, nA: Math.max(1, Math.round(num('nA') || 1)),
     axB: +$('axB').value, nB: Math.max(1, Math.round(num('nB') || 1)),
     fit: num('fit') || 0, flip: $('flip').checked,
@@ -2054,7 +2135,7 @@ syncDest();
 syncPlaque();
 
 document.querySelectorAll('aside input, aside select').forEach(el => {
-  if (['file', 'size', 'simp', 'plaqueFile'].includes(el.id)) return;
+  if (['file', 'size', 'simp', 'plaqueFile', 'solid'].includes(el.id)) return;
   el.addEventListener('input', () => {
     if (el.name === 'mode' || el.name === 'dest') state.animateNext = true;   // trocar de estilo remonta as peças com animação
     if (el.name === 'mode') syncMode();
@@ -2064,6 +2145,7 @@ document.querySelectorAll('aside input, aside select').forEach(el => {
   });
 });
 $('simp').addEventListener('change', async () => { if (state.rawFull) { await applySimplify(); regenerate(); } });
+$('solid').addEventListener('change', async () => { if (state.rawFull) { await applySimplify(); regenerate(); } });
 $('plaqueFile').onchange = async e => {
   const file = e.target.files[0];
   if (!file) return;
