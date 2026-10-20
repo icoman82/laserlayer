@@ -11,7 +11,8 @@ Outros recursos:
 
 - **Exemplos prontos**, modelados em código: lobo-guará, onça-pintada, capivara, tamanduá-bandeira, veado-campeiro, unicórnio, dragão oriental, dragão alado e tiranossauro rex.
 - **Simplificação low-poly** ao carregar o STL (meshoptimizer), para peças com contornos retos.
-- **Placa de parede**: escudo clássico, brasão, oval, retângulo, hexágono ou um arquivo próprio (SVG ou STL). As peças perpendiculares à parede ganham abas que entram em fendas na placa.
+- **Placa de parede**: escudo clássico, brasão, oval, retângulo, hexágono ou um **SVG** próprio (formas internas viram furos). Pode ter de 1 a 5 camadas em degraus, cada uma menor que a de trás, e borda gravada (linha simples, dupla, tracejada, pontilhada, ondas ou zigue-zague). Uma **base sólida** com o contorno das costas do modelo encaixa num rebaixo da placa, e as espinhas ganham abas que atravessam base e placa até a parede.
+- **Partes soltas**: mapa de ligações entre as peças, pontes automáticas e um botão que testa mais espinhas e costelas até tudo ficar conectado.
 - **Modo vitrine**: textura de MDF, bordas queimadas pelo laser, sombra na parede e exportação em PNG.
 - **Janela de prévia** no canto, que troca de lugar com a vista principal.
 
