@@ -1,0 +1,2219 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laserlayer · STL em peças para laser e impressora 3D</title>
+<meta name="description" content="Transforme um STL em peças de MDF para corte a laser ou para impressora 3D (egg crate ou empilhado). Tudo roda no navegador.">
+<meta name="theme-color" content="#0D0F12">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect x='1' y='1' width='32' height='32' rx='10' fill='%231B2027'/%3E%3Cpath d='M9 21 L17 25 L25 21' fill='none' stroke='%235C8DF5' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M9 17 L17 21 L25 17' fill='none' stroke='%23B4BCC7' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M9 13 L17 9 L25 13 L17 17 Z' fill='none' stroke='%23FFA35C' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Laserlayer">
+<meta property="og:description" content="Transforme um STL em troféus de parede em MDF (egg crate ou empilhado) para corte a laser ou impressora 3D. Grátis, direto no navegador.">
+<meta property="og:url" content="https://laserlayer.icoman.com.br/">
+<meta name="twitter:card" content="summary">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Paleta "oficina à noite". Contrastes medidos sobre --s1: texto 15,7:1 · texto 2 9,3:1 · texto 3 5,9:1
+     · laser 9,0:1 · gravação 5,6:1 · borda de controle 3,6:1. */
+  :root {
+    --bg: #0D0F12; --s1: #14181D; --s2: #1B2027; --s3: #232A33; --stage: #0B0D10;
+    --line: #2A313A; --ctl: #66717F;
+    --tx: #EEF1F4; --tx2: #B4BCC7; --tx3: #8C96A3;
+    --acc: #FFA35C; --acc-ink: #1A0E05; --engrave: #5C8DF5; --err: #FF7A7A; --ok: #4CC38A;
+    --spring: cubic-bezier(.3, 1.35, .45, 1); --out: cubic-bezier(.2, .9, .3, 1);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body:not(.fdm) .fdm-only, body.fdm .laser-only { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--tx);
+    font: 14px/1.45 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
+
+  /* ---------- Barra superior ---------- */
+  .topbar {
+    display: flex; align-items: center; gap: 14px; padding: 10px 18px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--line); position: relative; z-index: 30;
+  }
+  .glass { background: rgba(20, 24, 29, .82); -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2); }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand b { font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; max-width: 100%;
+    border-radius: 999px; background: var(--s2); border: 1px solid var(--line); font-size: 13px; color: var(--tx2);
+  }
+  .chip .name { color: var(--tx); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  .status { flex: 1 1 260px; min-width: 0; justify-content: flex-start; }
+  .status #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .status.err { color: var(--err); border-color: rgba(255, 122, 122, .45); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex-shrink: 0; animation: pulse 2.2s ease-out infinite; }
+  .status.idle .dot { background: var(--tx3); animation: none; }
+  .status.busy .dot { background: var(--acc); animation: pulseAcc .9s ease-out infinite; }
+  .status.err .dot { background: var(--err); animation: none; }
+
+  /* ---------- Botões ---------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px;
+    border-radius: 12px; border: 1px solid var(--ctl); background: var(--s2); color: var(--tx); cursor: pointer; font-weight: 500;
+    transition: transform .18s ease, background .2s ease, border-color .2s ease, box-shadow .25s ease, filter .2s ease;
+  }
+  .btn:hover:not(:disabled) { background: var(--s3); border-color: var(--tx3); }
+  .btn:active:not(:disabled) { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); font-weight: 600; box-shadow: 0 10px 30px -12px var(--acc); }
+  .btn-primary:hover:not(:disabled) { background: var(--acc); border-color: var(--acc); filter: brightness(1.08); box-shadow: 0 14px 36px -10px var(--acc); }
+  .btn-sm { min-height: 36px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+  .icon-btn { width: 44px; padding: 0; }
+  .ghost { background: transparent; border-color: transparent; }
+  .ghost:hover:not(:disabled) { background: var(--s3); border-color: var(--line); }
+  .ghost[aria-pressed="true"] { color: var(--acc); background: var(--s3); }
+
+  /* ---------- Layout ---------- */
+  .app { flex: 1; min-height: 0; display: flex; }
+  aside.side {
+    width: 372px; flex-shrink: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+    border-right: 1px solid var(--line); background: var(--bg); scrollbar-width: thin; scrollbar-color: #3A4450 transparent;
+  }
+  .intro { margin: 0 2px 2px; font-size: 13px; color: var(--tx3); }
+
+  /* ---------- Controle segmentado com indicador deslizante ---------- */
+  .seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg .ind {
+    position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 10px;
+    background: var(--s3); box-shadow: inset 0 0 0 1px var(--ctl), 0 6px 18px -8px rgba(0, 0, 0, .8);
+    transition: transform .45s var(--spring);
+  }
+  .seg:has(input:nth-of-type(2):checked) .ind, .seg.at-1 .ind { transform: translateX(100%); }
+  .seg label, .seg button {
+    position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-height: 44px; padding: 8px 6px; border: 0; border-radius: 10px; background: none; color: var(--tx2); cursor: pointer;
+    text-align: center; transition: color .25s ease;
+  }
+  .seg label:hover, .seg button:hover { color: var(--tx); }
+  .seg input:checked + label, .seg button[aria-pressed="true"] { color: var(--tx); }
+  .seg input:checked + label .seg-ico { color: var(--acc); }
+  .seg input:focus-visible + label { outline: 2px solid var(--acc); outline-offset: -2px; }
+  .seg input:disabled + label { opacity: .4; cursor: not-allowed; }
+  .seg .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+  .seg .s { font: 11px 'Geist Mono', monospace; color: var(--tx3); }
+
+  /* ---------- Cartões das etapas ---------- */
+  .card {
+    background: var(--s1); border: 1px solid var(--line); border-radius: 18px; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px; animation: rise .6s var(--out) both;
+  }
+  .card:nth-of-type(2) { animation-delay: .05s; } .card:nth-of-type(3) { animation-delay: .1s; }
+  .card:nth-of-type(4) { animation-delay: .15s; } .card:nth-of-type(5) { animation-delay: .2s; }
+  .card h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+  .step { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: var(--s3); color: var(--acc); font: 600 12px 'Geist Mono', monospace; }
+  .hint { margin: 0; font-size: 12px; color: var(--tx3); line-height: 1.45; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .lbl { font-size: 13px; color: var(--tx2); }
+  .val { font: 500 13px 'Geist Mono', monospace; color: var(--tx); }
+  .stack { display: flex; flex-direction: column; gap: 4px; }
+  .unit { display: flex; align-items: center; gap: 8px; color: var(--tx2); font-size: 13px; }
+  .inp {
+    width: 88px; min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--ctl); background: var(--bg);
+    color: var(--tx); text-align: right; font: 500 14px 'Geist Mono', monospace; transition: border-color .2s ease, box-shadow .2s ease;
+  }
+  .inp:focus, .sel:focus { border-color: var(--acc); box-shadow: 0 0 0 3px rgba(255, 163, 92, .25); outline: none; }
+  .sel { min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--ctl); background: var(--bg); color: var(--tx); }
+  .sel.full { width: 100%; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .cell { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--tx2); }
+  .cell .inp { width: 100%; }
+  .range { width: 100%; height: 28px; margin: 0; accent-color: var(--acc); cursor: pointer; }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--tx2); cursor: pointer; min-height: 28px; }
+  .check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--acc); flex-shrink: 0; }
+
+  /* Arquivo: borda tracejada que "anda" no hover / ao arrastar */
+  .filebox { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; background: var(--bg); cursor: pointer; }
+  .filebox .ants { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .filebox .ants rect { fill: none; stroke: #3A4450; stroke-width: 1.5; stroke-dasharray: 6 6; transition: stroke .3s ease; }
+  .filebox:hover .ants rect, .filebox.over .ants rect { stroke: var(--acc); animation: march 1s linear infinite; }
+  .filebox .ico { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--s2); color: var(--acc); flex-shrink: 0; }
+  .filebox .txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; font-size: 13px; }
+  .filebox .txt b { font-weight: 500; font-size: 14px; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .filebox .txt span { font: 11px 'Geist Mono', monospace; color: var(--tx3); }
+  .linkbtn { border: 0; background: none; padding: 4px 0; color: var(--acc); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font-size: 13px; text-align: left; }
+
+  /* Ladrilhos (low-poly, placas) */
+  .tiles { display: grid; gap: 6px; }
+  .tiles.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tile {
+    display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 44px; padding: 10px 2px 8px;
+    border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--tx2); cursor: pointer;
+    transition: transform .25s var(--spring), border-color .2s ease, box-shadow .3s ease, color .2s ease;
+  }
+  .tile:hover { transform: translateY(-2px); border-color: var(--ctl); color: var(--tx); }
+  .tile[aria-pressed="true"] { border-color: var(--acc); color: var(--tx); box-shadow: 0 0 0 1px var(--acc), 0 12px 28px -14px var(--acc); }
+  .tile .shape { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; transition: fill .3s ease, stroke .3s ease; }
+  .tile[aria-pressed="true"] .shape { stroke: var(--acc); fill: rgba(255, 163, 92, .14); }
+  .tile[aria-pressed="true"] svg { animation: pop .5s var(--spring); }
+  .tile .l { font-size: 12px; font-weight: 500; }
+  .tile.dashed { border-style: dashed; }
+
+  /* Opções grandes (estilo) */
+  .opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .opts input { position: absolute; opacity: 0; pointer-events: none; }
+  .opt {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px; border-radius: 14px;
+    border: 1px solid var(--line); background: var(--bg); cursor: pointer; min-height: 44px;
+    transition: border-color .2s ease, box-shadow .3s ease, transform .25s ease;
+  }
+  .opt:hover { border-color: var(--ctl); transform: translateY(-1px); }
+  .opts input:checked + .opt { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc); }
+  .opts input:focus-visible + .opt { outline: 2px solid var(--acc); outline-offset: 2px; }
+  .opts input:disabled + .opt { opacity: .45; cursor: not-allowed; transform: none; }
+  .opt b { font-size: 14px; font-weight: 600; color: var(--tx); }
+  .opt span { font-size: 12px; color: var(--tx3); line-height: 1.35; }
+
+  .fam { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .fam .who { display: flex; flex-direction: column; font-size: 13px; font-weight: 500; }
+  .fam .who small { font-size: 12px; font-weight: 400; color: var(--tx3); }
+  .fam .ctl { display: flex; align-items: center; gap: 6px; }
+  .fam .sel { min-height: 40px; padding: 0 8px; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--ctl); border-radius: 12px; overflow: hidden; background: var(--bg); }
+  .stepper button { width: 36px; min-height: 40px; border: 0; background: none; cursor: pointer; color: var(--tx2); font-size: 16px; transition: background .2s ease, color .2s ease; }
+  .stepper button:hover { background: var(--s3); color: var(--tx); }
+  .stepper input { width: 40px; min-height: 40px; border: 0; background: none; text-align: center; font: 600 14px 'Geist Mono', monospace; -moz-appearance: textfield; }
+  .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; }
+  details.more summary { cursor: pointer; font-size: 13px; color: var(--tx2); list-style: none; display: flex; align-items: center; gap: 6px; min-height: 32px; }
+  details.more summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .25s ease; }
+  details.more[open] summary::before { transform: rotate(45deg); }
+  details.more > div { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; }
+
+  /* ---------- Palco (vista principal) ---------- */
+  .stage {
+    flex: 1; min-width: 0; position: relative; overflow: hidden;
+    background-color: var(--stage); background-image: radial-gradient(rgba(180, 188, 199, .09) 1px, transparent 1px); background-size: 22px 22px;
+  }
+  .stage-bar { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; z-index: 6; flex-wrap: wrap; pointer-events: none; }
+  .stage-bar > * { pointer-events: auto; }
+  .tabs { width: 280px; border: 1px solid var(--line); }
+  .tabs button { font-size: 14px; font-weight: 500; }
+  .tools { display: flex; gap: 2px; padding: 4px; border-radius: 14px; border: 1px solid var(--line); }
+  .slot-main { position: absolute; inset: 0; }
+  .slot-main > #view3d { position: absolute; inset: 0; }
+  .slot-main > #sheets { position: absolute; inset: 72px 16px 64px; overflow-y: auto; }
+  #view3d canvas { display: block; }
+  .view-in { animation: viewIn .5s var(--out) both; }
+  #sheets .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 16px; align-content: start; padding-bottom: 8px; }
+  .sheet { margin: 0; background: var(--s1); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; animation: rise .5s var(--out) both; }
+  .sheet figcaption { display: flex; justify-content: space-between; gap: 8px; padding: 12px 16px; font-size: 13px; }
+  .sheet figcaption b { font-weight: 600; }
+  .sheet figcaption span { font: 12px 'Geist Mono', monospace; color: var(--tx3); }
+  .sheet figcaption .warn { color: var(--err); }
+  .sheet .paper { padding: 0 12px 12px; }
+  .sheet svg { width: 100%; height: auto; display: block; }
+  .no-pieces { color: var(--tx3); padding: 40px 0; text-align: center; }
+
+  /* Corte a laser "desenhando" cada contorno */
+  .draw .cut { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .9s ease forwards; }
+  .draw .eng, .draw .lbl-t { animation: fade .5s ease both; }
+
+  .legend { position: absolute; left: 16px; bottom: 16px; display: inline-flex; align-items: center; gap: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line); font-size: 12px; color: var(--tx2); z-index: 5; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* ---------- Janela de prévia (PiP) ---------- */
+  .pip {
+    position: absolute; right: 20px; bottom: 20px; width: 340px; border-radius: 18px; overflow: hidden; z-index: 8;
+    border: 1px solid var(--line); box-shadow: 0 30px 70px -24px rgba(0, 0, 0, .9);
+    animation: pipIn .6s cubic-bezier(.2, 1.25, .4, 1) both; transition: transform .3s ease, box-shadow .3s ease;
+  }
+  .pip:hover { transform: translateY(-3px); box-shadow: 0 36px 80px -24px rgba(0, 0, 0, .95); }
+  .pip-h { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line); }
+  .pip-h .title { font-size: 13px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pip-h .btn { min-height: 36px; width: 36px; }
+  .pip-body { position: relative; height: 210px; background: var(--stage); cursor: pointer; }
+  .pip-body > #view3d { position: absolute; inset: 0; pointer-events: none; }
+  .pip-body > #sheets { position: absolute; inset: 0; overflow: hidden; display: grid; place-items: center; padding: 10px; }
+  .pip-body #sheets .grid { display: block; width: 100%; }
+  .pip-body #sheets .sheet { background: none; border: 0; animation: none; }
+  .pip-body #sheets .sheet:not(:first-child), .pip-body #sheets figcaption { display: none; }
+  .pip-body #sheets .paper { padding: 0; }
+  .pip-body #sheets svg { max-height: 190px; }
+  .pip-body .cut { animation-name: drawLoop !important; animation-duration: 7s !important; animation-iteration-count: infinite !important; }
+  .pip-mini { position: absolute; right: 20px; bottom: 20px; z-index: 8; animation: pipIn .4s ease both; border: 1px solid var(--line); }
+  .live { display: inline-flex; align-items: center; gap: 6px; font: 500 11px 'Geist Mono', monospace; color: var(--tx3); text-transform: uppercase; letter-spacing: .08em; }
+  .live i { width: 6px; height: 6px; border-radius: 50%; background: var(--acc); animation: pulseAcc 1.8s ease-out infinite; }
+
+  /* ---------- Estado vazio ---------- */
+  .empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; z-index: 9; background: var(--stage); }
+  .empty-card { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 420px; text-align: center; animation: rise .7s var(--out) both; }
+  .empty-card h2 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
+  .empty-card p { margin: 0; color: var(--tx2); }
+  .empty-card .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .empty-art .layer { animation: float 3.6s ease-in-out infinite; }
+  .empty-art .layer:nth-child(2) { animation-delay: .25s; } .empty-art .layer:nth-child(3) { animation-delay: .5s; }
+
+  .empty-card { max-width: 760px; }
+  .empty { overflow-y: auto; }
+
+  /* ---------- Galeria de exemplos ---------- */
+  .gal { width: 100%; text-align: left; }
+  .gal-lead { margin: 12px 0 4px; text-align: center; color: var(--tx2); font-size: 13px; }
+  .gal-h { margin: 14px 0 8px; font: 500 11px 'Geist Mono', monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--acc); }
+  .gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+  .ex-card {
+    display: flex; flex-direction: column; gap: 6px; padding: 6px 6px 10px; border-radius: 14px; border: 1px solid var(--line);
+    background: var(--s1); cursor: pointer; text-align: left; color: var(--tx); font-size: 13px; font-weight: 500;
+    transition: transform .25s var(--spring), border-color .2s ease, box-shadow .3s ease;
+  }
+  .ex-card:hover { transform: translateY(-3px); border-color: var(--acc); box-shadow: 0 16px 34px -18px var(--acc); }
+  .ex-card img { width: 100%; aspect-ratio: 4 / 3; border-radius: 10px; background: radial-gradient(circle at 50% 40%, #1F252D, #0F1215); }
+  .ex-card span { padding: 0 4px; }
+  dialog#gallery {
+    width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; padding: 20px 22px 22px;
+    border: 1px solid var(--line); border-radius: 22px; color: var(--tx); box-shadow: 0 40px 90px -30px #000;
+  }
+  dialog#gallery[open] { animation: popIn .35s cubic-bezier(.2, 1.3, .4, 1) both; }
+  dialog#gallery::backdrop { background: rgba(5, 6, 8, .6); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+  .gal-top { display: flex; align-items: center; justify-content: space-between; }
+  .gal-top h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  .gal-top form { margin: 0; }
+
+  /* ---------- Modo vitrine ---------- */
+  body.showcase .legend, body.showcase #pip, body.showcase #pipShow, body.showcase #viewTabs { display: none !important; }
+  body.showcase .stage { background: #12100E; }
+  #showcaseBtn[aria-pressed="true"] { color: var(--acc); background: var(--s3); }
+
+  /* ---------- Exportar (popover) ---------- */
+  .export-wrap { position: relative; }
+  .pop {
+    position: absolute; right: 0; top: 54px; width: 360px; max-width: calc(100vw - 32px); padding: 8px; border-radius: 18px; z-index: 40;
+    border: 1px solid var(--line); box-shadow: 0 30px 70px -20px rgba(0, 0, 0, .9);
+    transform-origin: top right; animation: popIn .3s cubic-bezier(.2, 1.3, .4, 1) both;
+  }
+  .pop .live { padding: 8px 12px 6px; }
+  .fmt { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border-radius: 12px; border: 0; background: none; text-align: left; cursor: pointer; min-height: 56px; transition: background .2s ease; }
+  .fmt:hover:not(:disabled) { background: var(--s3); }
+  .fmt:disabled { opacity: .45; cursor: not-allowed; }
+  .fmt .badge { display: inline-grid; place-items: center; min-width: 52px; height: 32px; padding: 0 8px; border-radius: 8px; background: var(--s3); color: var(--acc); font: 600 12px 'Geist Mono', monospace; }
+  .fmt .d { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .fmt .d b { font-size: 14px; font-weight: 500; color: var(--tx); }
+  .fmt .d span { font-size: 12px; color: var(--tx3); }
+  .pop .note { margin: 4px 12px 8px; font-size: 12px; color: var(--tx3); }
+
+  /* ---------- Animações ---------- */
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  @keyframes pop { 0% { transform: scale(.8); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+  @keyframes march { to { stroke-dashoffset: -24; } }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(76, 195, 138, .55); } 75%, 100% { box-shadow: 0 0 0 8px rgba(76, 195, 138, 0); } }
+  @keyframes pulseAcc { 0% { box-shadow: 0 0 0 0 rgba(255, 163, 92, .6); } 75%, 100% { box-shadow: 0 0 0 7px rgba(255, 163, 92, 0); } }
+  @keyframes viewIn { from { opacity: 0; transform: scale(.985); } }
+  @keyframes pipIn { from { opacity: 0; transform: translateY(18px) scale(.94); } }
+  @keyframes popIn { from { opacity: 0; transform: scale(.92) translateY(-6px); } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes drawLoop { 0% { stroke-dashoffset: 1; } 35%, 88% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes float { 50% { transform: translateY(-5px); } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .draw .cut { stroke-dashoffset: 0; }
+  }
+
+  /* ---------- Telas estreitas ---------- */
+  @media (max-width: 860px) {
+    body { height: auto; overflow: auto; }
+    .app { flex-direction: column-reverse; }
+    aside.side { width: auto; border-right: 0; border-top: 1px solid var(--line); overflow: visible; }
+    .stage { height: 72vh; min-height: 480px; flex: none; }
+    .pip { width: 200px; right: 12px; bottom: 12px; }
+    .pip-body { height: 130px; }
+    .legend { display: none; }
+    .topbar { gap: 8px; padding: 8px 12px; }
+    .export-wrap { order: 1; margin-left: auto; }
+    .status { order: 2; flex: 1 1 100%; }
+    #fileChip { display: none; }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<header class="topbar glass">
+  <div class="brand">
+    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+      <rect x="1" y="1" width="32" height="32" rx="10" fill="#1B2027" stroke="#2A313A"/>
+      <path d="M9 21 L17 25 L25 21" fill="none" stroke="#5C8DF5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M9 17 L17 21 L25 17" fill="none" stroke="#B4BCC7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M9 13 L17 9 L25 13 L17 17 Z" fill="none" stroke="#FFA35C" stroke-width="1.8" stroke-linejoin="round"/>
+    </svg>
+    <b>Laserlayer</b>
+  </div>
+  <span class="chip" id="fileChip" hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L20 7.5 V16.5 L12 21 L4 16.5 V7.5 Z"/><path d="M12 12 L20 7.5 M12 12 V21 M12 12 L4 7.5"/></svg>
+    <span class="name" id="fileName"></span>
+    <span class="mono" id="fileTris" style="font-size:12px"></span>
+  </span>
+  <span class="chip status idle" id="statusChip" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="status">Carregue um STL para começar.</span><span id="busy" class="sr-only" hidden> · calculando…</span></span>
+  <div class="export-wrap">
+    <button class="btn btn-primary" id="exportBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="exportPop" disabled>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 V15 M7 10 L12 15 L17 10 M5 20 H19"/></svg>
+      Exportar
+    </button>
+    <div class="pop glass" id="exportPop" role="menu" aria-label="Formatos de exportação" hidden>
+      <div class="live laser-only">Exportar para o laser</div>
+      <div class="live fdm-only">Exportar para impressão 3D</div>
+      <button class="fmt laser-only" id="exSVG" role="menuitem" disabled><span class="badge">SVG</span><span class="d"><b>Uma chapa por arquivo</b><span>LightBurn, Inkscape, Illustrator</span></span></button>
+      <button class="fmt laser-only" id="exDXF" role="menuitem" disabled><span class="badge">DXF</span><span class="d"><b>Camadas CORTE e GRAVACAO</b><span>RDWorks, LaserCAD, AutoCAD</span></span></button>
+      <button class="fmt fdm-only" id="ex3MF" role="menuitem" disabled><span class="badge">3MF</span><span class="d"><b>Uma mesa por arquivo</b><span>Peças nomeadas · Bambu, Orca, Prusa, Cura</span></span></button>
+      <button class="fmt fdm-only" id="exSTL" role="menuitem" disabled><span class="badge">STL</span><span class="d"><b>Peças separadas</b><span>Um arquivo por peça, em .zip</span></span></button>
+      <button class="fmt" id="exSTLa" role="menuitem" disabled><span class="badge">STL</span><span class="d"><b>Modelo montado</b><span>Para conferir a montagem em 3D</span></span></button>
+      <p class="note laser-only">Mais de uma chapa vira um .zip. Laranja/vermelho = corte, azul = gravação.</p>
+      <p class="note fdm-only">Mais de uma mesa vira um .zip.</p>
+    </div>
+  </div>
+</header>
+
+<div class="app">
+<aside class="side" aria-label="Configurações">
+  <p class="intro">Transforme um STL em peças planas para montar. Tudo roda no seu navegador: o arquivo não sai do seu computador.</p>
+
+  <div class="seg" role="radiogroup" aria-label="Destino">
+    <span class="ind" aria-hidden="true"></span>
+    <input type="radio" name="dest" id="dLaser" value="laser" checked>
+    <label for="dLaser">
+      <span class="t"><svg class="seg-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 2 V13"/><path d="M8 3 H16"/><path d="M12 17 L9 21 M12 17 L15 21 M12 17 V22 M12 17 L7 18 M12 17 L17 18"/></svg>Corte a laser</span>
+      <span class="s">MDF · SVG · DXF</span>
+    </label>
+    <input type="radio" name="dest" id="dFdm" value="fdm">
+    <label for="dFdm">
+      <span class="t"><svg class="seg-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3 H17 V9 H7 Z"/><path d="M10 9 L12 13 L14 9"/><path d="M4 20 H20 M7 17 H17"/></svg>Impressora 3D</span>
+      <span class="s">FDM · 3MF · STL</span>
+    </label>
+  </div>
+
+  <section class="card" aria-labelledby="h1">
+    <h2 id="h1"><span class="step">1</span>Modelo</h2>
+    <label class="filebox" id="drop">
+      <input type="file" id="file" accept=".stl" hidden>
+      <svg class="ants" aria-hidden="true"><rect x="0.75" y="0.75" rx="13.5" style="width:calc(100% - 1.5px);height:calc(100% - 1.5px)"/></svg>
+      <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L20 7.5 V16.5 L12 21 L4 16.5 V7.5 Z"/><path d="M12 12 L20 7.5 M12 12 V21 M12 12 L4 7.5"/></svg></span>
+      <span class="txt"><b id="dropText">Solte um STL ou clique</b><span id="modelInfo">Nenhum arquivo carregado</span></span>
+    </label>
+    <button class="btn btn-sm" id="demo2" type="button" style="align-self:flex-start">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+      Exemplos prontos
+    </button>
+    <div class="row">
+      <span class="lbl">Girar 90°</span>
+      <span style="display:flex;gap:6px">
+        <button class="btn icon-btn mono" type="button" data-rot="x" aria-label="Girar 90 graus no eixo X">X</button>
+        <button class="btn icon-btn mono" type="button" data-rot="y" aria-label="Girar 90 graus no eixo Y">Y</button>
+        <button class="btn icon-btn mono" type="button" data-rot="z" aria-label="Girar 90 graus no eixo Z">Z</button>
+        <button class="btn icon-btn" type="button" id="rotReset" aria-label="Desfazer rotações"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 12 A8 8 0 1 0 7 5.8"/><path d="M4 4 V9 H9"/></svg></button>
+      </span>
+    </div>
+    <p class="hint">A parede fica atrás. Gire até o modelo "olhar" para você.</p>
+    <div class="row">
+      <label class="lbl" for="size">Maior dimensão</label>
+      <span class="unit"><input class="inp" type="number" id="size" value="400" min="20" step="10">mm</span>
+    </div>
+    <div class="stack" style="gap:10px">
+      <div class="row"><span class="lbl" id="lpLabel">Low-poly</span><span class="val" id="simpOut">Forte · 1.500 tri</span></div>
+      <select id="simp" hidden aria-hidden="true" tabindex="-1">
+        <option value="0">Original</option><option value="20000">Leve</option><option value="5000">Média</option>
+        <option value="1500" selected>Forte</option><option value="500">Extrema</option>
+      </select>
+      <div class="tiles five" role="group" aria-labelledby="lpLabel" id="simpTiles">
+        <button class="tile" type="button" data-simp="0" aria-pressed="false" aria-label="Original, sem simplificar"><svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true"><circle class="shape" cx="18" cy="18" r="14"/></svg><span class="l">Original</span></button>
+        <button class="tile" type="button" data-simp="20000" aria-pressed="false" aria-label="Leve, 20 mil triângulos"><svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true"><polygon class="shape" points="18,4 22.8,4.8 27,7.3 30.1,11 31.8,15.6 31.8,20.4 30.1,25 27,28.7 22.8,31.2 18,32 13.2,31.2 9,28.7 5.9,25 4.2,20.4 4.2,15.6 5.9,11 9,7.3 13.2,4.8"/></svg><span class="l">Leve</span></button>
+        <button class="tile" type="button" data-simp="5000" aria-pressed="false" aria-label="Média, 5 mil triângulos"><svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true"><polygon class="shape" points="18,4 25.6,6.2 30.7,12.2 31.9,20 28.6,27.2 21.9,31.4 14.1,31.4 7.4,27.2 4.1,20 5.3,12.2 10.4,6.2"/></svg><span class="l">Média</span></button>
+        <button class="tile" type="button" data-simp="1500" aria-pressed="true" aria-label="Forte, 1.500 triângulos"><svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true"><polygon class="shape" points="18,4 28.9,9.3 31.6,21.1 24.1,30.6 11.9,30.6 4.4,21.1 7.1,9.3"/></svg><span class="l">Forte</span></button>
+        <button class="tile" type="button" data-simp="500" aria-pressed="false" aria-label="Extrema, 500 triângulos"><svg width="30" height="30" viewBox="0 0 36 36" aria-hidden="true"><polygon class="shape" points="18,4 31.3,13.7 26.2,29.3 9.8,29.3 4.7,13.7"/></svg><span class="l">Extrema</span></button>
+      </div>
+      <p class="hint">Deixa o modelo facetado: contornos retos, mais fáceis de cortar e lixar.</p>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h2">
+    <h2 id="h2"><span class="step">2</span>Estilo</h2>
+    <div class="opts" role="radiogroup" aria-label="Estilo">
+      <input type="radio" name="mode" id="mEgg" value="egg" checked>
+      <label class="opt" for="mEgg">
+        <svg width="40" height="28" viewBox="0 0 40 28" fill="none" stroke="#FFA35C" stroke-width="1.6" aria-hidden="true"><path d="M4 8 H36 M4 14 H36 M4 20 H36"/><path d="M10 4 V24 M20 4 V24 M30 4 V24"/></svg>
+        <b>Egg crate</b><span>Fatias cruzadas com encaixes. Monta sem cola.</span>
+      </label>
+      <input type="radio" name="mode" id="mStack" value="stack">
+      <label class="opt" for="mStack">
+        <svg width="40" height="28" viewBox="0 0 40 28" fill="none" stroke="#B4BCC7" stroke-width="1.6" aria-hidden="true"><path d="M8 6 H32 M5 11 H35 M4 16 H36 M6 21 H34"/></svg>
+        <b>Empilhado</b><span>Camadas coladas em curvas de nível.</span>
+      </label>
+    </div>
+    <p class="hint" id="modeHint"></p>
+    <p class="hint" id="fdmModeHint" hidden>Na impressora 3D só o egg crate está disponível. O empilhado teria peças demais e levaria dias para imprimir.</p>
+    <div id="eggOpts" class="stack" style="gap:10px">
+      <div class="fam">
+        <span class="who">Família A<small>espinha</small></span>
+        <span class="ctl">
+          <select class="sel" id="axA" aria-label="Eixo da família A"><option value="0" selected>X</option><option value="1">Y</option><option value="2">Z</option></select>
+          <span class="stepper"><button type="button" data-step="nA" data-d="-1" aria-label="Menos fatias na família A">−</button><input type="number" id="nA" value="3" min="1" max="60" step="1" aria-label="Fatias da família A"><button type="button" data-step="nA" data-d="1" aria-label="Mais fatias na família A">+</button></span>
+        </span>
+      </div>
+      <div class="fam">
+        <span class="who">Família B<small>costelas</small></span>
+        <span class="ctl">
+          <select class="sel" id="axB" aria-label="Eixo da família B"><option value="0">X</option><option value="1">Y</option><option value="2" selected>Z</option></select>
+          <span class="stepper"><button type="button" data-step="nB" data-d="-1" aria-label="Menos fatias na família B">−</button><input type="number" id="nB" value="9" min="1" max="80" step="1" aria-label="Fatias da família B"><button type="button" data-step="nB" data-d="1" aria-label="Mais fatias na família B">+</button></span>
+        </span>
+      </div>
+      <div class="row">
+        <label class="lbl" for="fit">Folga do encaixe</label>
+        <span class="unit"><input class="inp" type="number" id="fit" value="0" step="0.05">mm</span>
+      </div>
+      <p class="hint">Somada à espessura na largura da fenda. Negativo = mais apertado.</p>
+      <label class="check"><input type="checkbox" id="flip">Inverter direção dos encaixes</label>
+    </div>
+    <div id="stackOpts" class="stack" style="gap:10px" hidden>
+      <div class="row">
+        <label class="lbl" for="axS">Eixo das camadas</label>
+        <select class="sel" id="axS"><option value="0">X</option><option value="1">Y</option><option value="2" selected>Z · paralelo à parede</option></select>
+      </div>
+      <label class="check"><input type="checkbox" id="guides" checked>Gravar guia de alinhamento (contorno da próxima camada)</label>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h3">
+    <h2 id="h3"><span class="step">3</span>Material</h2>
+    <div class="stack">
+      <div class="row"><label class="lbl" for="t" id="tLabel">Espessura da chapa</label><output class="val" data-out="t" data-unit=" mm" data-dec="1">3,0 mm</output></div>
+      <input class="range" type="range" id="t" value="3" min="0.5" max="12" step="0.1">
+    </div>
+    <div class="stack">
+      <div class="row"><label class="lbl" for="back">Cortar o fundo (parede)</label><output class="val" data-out="back" data-unit=" %" data-dec="0">0 %</output></div>
+      <input class="range" type="range" id="back" value="0" min="0" max="80" step="1">
+      <p class="hint">Remove a parte de trás para o modelo encostar reto na parede.</p>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h4">
+    <h2 id="h4"><span class="step">4</span>Placa de parede</h2>
+    <select id="plaque" hidden aria-hidden="true" tabindex="-1">
+      <option value="none">Sem placa</option><option value="classic" selected>Escudo clássico</option><option value="heater">Brasão</option>
+      <option value="oval">Oval</option><option value="rrect">Retângulo arredondado</option><option value="hex">Hexágono</option><option value="custom">Do meu arquivo</option>
+    </select>
+    <div class="tiles four" role="group" aria-label="Formato da placa" id="plaqueTiles">
+      <button class="tile" type="button" data-plaque="classic" aria-pressed="true"><svg width="26" height="32" viewBox="0 0 40 48" aria-hidden="true"><polygon class="shape" points="20,5.6 23.2,7.2 26.4,7.6 29.6,6.8 32,5.7 34.2,4.5 36.4,3.2 35.1,5.9 34.3,8.7 34,11.6 36.3,15.8 37.2,20.5 36.8,25.6 35.7,29.9 33.5,33.4 30.5,36.3 27,38.9 23.4,41.4 20,44 16.6,41.4 13,38.9 9.5,36.3 6.5,33.4 4.3,29.9 3.2,25.6 2.8,20.5 3.7,15.8 6,11.6 5.7,8.7 4.9,5.9 3.6,3.2 5.8,4.5 8,5.7 10.4,6.8 13.6,7.6 16.8,7.2"/></svg><span class="l">Escudo</span></button>
+      <button class="tile" type="button" data-plaque="heater" aria-pressed="false"><svg width="26" height="32" viewBox="0 0 40 48" aria-hidden="true"><polygon class="shape" points="20,4 36,4 36,19.2 35.6,24.6 34.2,29.4 32,33.8 28.9,37.7 24.9,41.1 20,44 15.1,41.1 11.1,37.7 8,33.8 5.8,29.4 4.4,24.6 4,19.2 4,4"/></svg><span class="l">Brasão</span></button>
+      <button class="tile" type="button" data-plaque="oval" aria-pressed="false"><svg width="26" height="32" viewBox="0 0 40 48" aria-hidden="true"><polygon class="shape" points="20,4 24.2,4.7 27.9,6.7 30.9,9.8 33.2,13.8 34.7,18.6 35.2,24 34.7,29.4 33.2,34.2 30.9,38.2 27.9,41.3 24.2,43.3 20,44 15.8,43.3 12.1,41.3 9.1,38.2 6.8,34.2 5.3,29.4 4.8,24 5.3,18.6 6.8,13.8 9.1,9.8 12.1,6.7 15.8,4.7"/></svg><span class="l">Oval</span></button>
+      <button class="tile" type="button" data-plaque="rrect" aria-pressed="false"><svg width="26" height="32" viewBox="0 0 40 48" aria-hidden="true"><polygon class="shape" points="8,4 32,4 35.2,7.2 35.2,40.8 32,44 8,44 4.8,40.8 4.8,7.2"/></svg><span class="l">Retângulo</span></button>
+      <button class="tile" type="button" data-plaque="hex" aria-pressed="false"><svg width="26" height="32" viewBox="0 0 40 48" aria-hidden="true"><polygon class="shape" points="20,4 37.2,14 37.2,34 20,44 2.8,34 2.8,14"/></svg><span class="l">Hexágono</span></button>
+      <button class="tile" type="button" data-plaque="none" aria-pressed="false"><svg width="26" height="32" viewBox="0 0 40 48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="20" cy="24" r="14"/><path d="M10 34 L30 14"/></svg><span class="l">Nenhuma</span></button>
+      <button class="tile dashed" type="button" data-plaque="custom" aria-pressed="false"><svg width="26" height="32" viewBox="0 0 40 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 34 V14 M12 22 L20 14 L28 22"/></svg><span class="l">SVG/STL</span></button>
+    </div>
+    <div id="plaqueCustom" hidden>
+      <label class="filebox" id="plaqueDrop">
+        <input type="file" id="plaqueFile" accept=".svg,.stl" hidden>
+        <svg class="ants" aria-hidden="true"><rect x="0.75" y="0.75" rx="13.5" style="width:calc(100% - 1.5px);height:calc(100% - 1.5px)"/></svg>
+        <span class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19 V7 M6 12 L12 6 L18 12"/></svg></span>
+        <span class="txt"><b id="plaqueText">Escolha um SVG com o contorno</b><span>ou um STL de uma peça plana</span></span>
+      </label>
+      <p class="hint" style="margin-top:8px">No SVG, formas desenhadas dentro de outras viram furos.</p>
+    </div>
+    <div id="plaqueOpts" class="stack" style="gap:12px">
+      <div class="row fdm-only">
+        <label class="lbl" for="tp">Espessura da placa</label>
+        <span class="unit"><input class="inp" type="number" id="tp" value="5" min="1" step="0.5">mm</span>
+      </div>
+      <div class="stack">
+        <div class="row"><label class="lbl" for="pSize">Tamanho</label><output class="val" data-out="pSize" data-unit=" %" data-dec="0">120 %</output></div>
+        <input class="range" type="range" id="pSize" value="120" min="50" max="250" step="5">
+      </div>
+      <div class="row">
+        <label class="lbl" for="pOff">Mover para cima/baixo</label>
+        <span class="unit"><input class="inp" type="number" id="pOff" value="0" step="5">mm</span>
+      </div>
+      <label class="check" id="pBorderRow"><input type="checkbox" id="pBorder" checked>Gravar borda decorativa</label>
+      <p class="hint">As peças que encostam na parede ganham abas que entram em fendas na placa.</p>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="sheetTitle">
+    <h2><span class="step">5</span><span id="sheetTitle">Chapa</span></h2>
+    <div class="stack fdm-only" style="gap:6px">
+      <label class="lbl" for="printer">Impressora</label>
+      <select class="sel full" id="printer">
+        <option value="180,180,180">Bambu Lab A1 mini · 180³</option>
+        <option value="256,256,256" selected>Bambu Lab A1 / P1S / X1C · 256³</option>
+        <option value="350,320,325">Bambu Lab H2D · 350 × 320 × 325</option>
+        <option value="250,210,220">Prusa MK4S · 250 × 210 × 220</option>
+        <option value="250,220,270">Prusa Core One · 250 × 220 × 270</option>
+        <option value="180,180,180">Prusa MINI+ · 180³</option>
+        <option value="360,360,360">Prusa XL · 360³</option>
+        <option value="220,220,250">Creality Ender-3 V3 / K1 / K1C · 220 × 220 × 250</option>
+        <option value="300,300,300">Creality K1 Max · 300³</option>
+        <option value="350,350,350">Creality K2 Plus · 350³</option>
+        <option value="225,225,265">Elegoo Neptune 4 / 4 Pro · 225 × 225 × 265</option>
+        <option value="420,420,480">Elegoo Neptune 4 Max · 420 × 420 × 480</option>
+        <option value="250,250,260">Anycubic Kobra 3 · 250 × 250 × 260</option>
+        <option value="350,350,340">Voron 2.4 (350) · 350 × 350 × 340</option>
+        <option value="custom">Personalizada</option>
+      </select>
+    </div>
+    <div class="grid2">
+      <label class="cell"><span id="swLabel">Largura</span><input class="inp" type="number" id="sw" value="600" min="50" step="10"></label>
+      <label class="cell"><span id="shLabel">Altura</span><input class="inp" type="number" id="sh" value="400" min="50" step="10"></label>
+      <label class="cell fdm-only">Altura (Z)<input class="inp" type="number" id="sz" value="256" min="10" step="10"></label>
+      <span class="fdm-only"></span>
+      <label class="cell">Espaço<input class="inp" type="number" id="gap" value="3" min="0" step="0.5"></label>
+      <label class="cell">Margem<input class="inp" type="number" id="margin" value="5" min="0" step="1"></label>
+    </div>
+    <p class="hint">Medidas em mm.</p>
+    <label class="check" id="labelsRow"><input type="checkbox" id="labels" checked>Gravar números nas peças (e o número da vizinha em cada encaixe)</label>
+  </section>
+</aside>
+
+<main class="stage" id="stage" aria-label="Visualização">
+  <div class="stage-bar">
+    <div class="seg tabs glass" id="viewTabs" role="group" aria-label="Vista principal">
+      <span class="ind" aria-hidden="true"></span>
+      <button type="button" data-view="3d" aria-pressed="true">Montagem 3D</button>
+      <button type="button" data-view="sheets" aria-pressed="false" id="tabSheets">Chapas</button>
+    </div>
+    <div class="tools glass">
+      <button class="btn ghost" type="button" id="showcaseBtn" aria-pressed="false" title="Modo vitrine: como vai ficar na parede">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L13.8 8.2 L19 10 L13.8 11.8 L12 17 L10.2 11.8 L5 10 L10.2 8.2 Z"/><path d="M19 16 L19.8 18.2 L22 19 L19.8 19.8 L19 22 L18.2 19.8 L16 19 L18.2 18.2 Z"/></svg>
+        Vitrine
+      </button>
+      <button class="btn ghost" type="button" id="snapBtn" hidden title="Salvar a imagem da vitrine em PNG">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 8 H7 L9 5 H15 L17 8 H20 V19 H4 Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+        Salvar PNG
+      </button>
+      <label class="btn icon-btn ghost" title="Mostrar STL original" style="position:relative">
+        <input type="checkbox" id="showModel" style="position:absolute;opacity:0;inset:0;margin:0;cursor:pointer" aria-label="Mostrar STL original">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12 C5 6 9 4 12 4 C15 4 19 6 22 12 C19 18 15 20 12 20 C9 20 5 18 2 12 Z"/><circle cx="12" cy="12" r="3"/></svg>
+      </label>
+      <button class="btn icon-btn ghost" type="button" id="recenter" aria-label="Centralizar câmera"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2 V6 M12 18 V22 M2 12 H6 M18 12 H22"/></svg></button>
+      <button class="btn icon-btn ghost" type="button" id="fullscreen" aria-label="Tela cheia"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15"/></svg></button>
+    </div>
+  </div>
+
+  <div class="slot-main" id="mainSlot">
+    <div id="view3d"></div>
+  </div>
+
+  <div class="legend glass" aria-hidden="true">
+    <span><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#FFA35C" stroke-width="2.5"/></svg>Corte</span>
+    <span><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="#5C8DF5" stroke-width="2.5" stroke-dasharray="4 3"/></svg>Gravação</span>
+    <span style="color:var(--tx3)">Arraste para girar · role para zoom</span>
+  </div>
+
+  <section class="pip glass" id="pip" aria-label="Janela de prévia">
+    <div class="pip-h">
+      <span class="live"><i></i>Prévia</span>
+      <span class="title" id="pipTitle">Chapa 1</span>
+      <button class="btn icon-btn ghost" type="button" id="pipSwap" aria-label="Trocar a prévia com a vista principal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 L3 8 L7 12 M3 8 H17 M17 12 L21 16 L17 20 M21 16 H7"/></svg></button>
+      <button class="btn icon-btn ghost" type="button" id="pipMin" aria-label="Minimizar prévia"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12 H19"/></svg></button>
+    </div>
+    <div class="pip-body" id="pipSlot" title="Clique para trocar com a vista principal">
+      <div id="sheets"><p class="no-pieces">As chapas aparecem aqui.</p></div>
+    </div>
+  </section>
+  <button class="btn glass pip-mini" type="button" id="pipShow" hidden><span class="live"><i></i></span>Mostrar prévia</button>
+
+  <div class="empty" id="empty3d">
+    <div class="empty-card">
+      <svg class="empty-art" width="120" height="96" viewBox="0 0 120 96" aria-hidden="true">
+        <g class="layer"><path d="M20 62 L60 80 L100 62" fill="none" stroke="#5C8DF5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+        <g class="layer"><path d="M20 48 L60 66 L100 48" fill="none" stroke="#B4BCC7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+        <g class="layer"><path d="M20 34 L60 16 L100 34 L60 52 Z" fill="rgba(255,163,92,.12)" stroke="#FFA35C" stroke-width="2.5" stroke-linejoin="round"/></g>
+      </svg>
+      <h2>Solte um STL aqui</h2>
+      <p>Ele vira peças planas em egg crate ou empilhadas, prontas para o laser ou para a impressora 3D.</p>
+      <div class="actions">
+        <label class="btn btn-primary" for="file">Escolher arquivo</label>
+      </div>
+      <div class="gal" id="galleryInline" aria-label="Exemplos prontos"><p class="gal-lead">Ou comece por um exemplo pronto</p></div>
+    </div>
+  </div>
+</main>
+</div>
+<div id="parking" hidden></div>
+
+<dialog id="gallery" class="glass" aria-labelledby="galTitle">
+  <div class="gal-top">
+    <h2 id="galTitle">Exemplos prontos</h2>
+    <form method="dialog"><button class="btn icon-btn ghost" aria-label="Fechar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"/></svg></button></form>
+  </div>
+  <p class="hint">Modelos low-poly feitos para virar troféu de parede. Cada um já vem com fatias e placa ajustadas.</p>
+  <div class="gal" id="galleryDialog"></div>
+</dialog>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshoptSimplifier } from 'https://cdn.jsdelivr.net/npm/meshoptimizer@0.21.0/meshopt_simplifier.module.js';
+
+const C = window.ClipperLib;
+const S = 1000;                       // Clipper trabalha com inteiros: 1 unidade = 1 µm
+const NZ = C.PolyFillType.pftNonZero;
+const R = x => Math.round(x * S);
+const $ = id => document.getElementById(id);
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+// Sistema de coordenadas 2D de cada plano de corte (eu × ev = en, mão direita).
+const FR = [
+  { eu: [0, 0, -1], ev: [0, 1, 0], en: [1, 0, 0] },
+  { eu: [1, 0, 0], ev: [0, 0, -1], en: [0, 1, 0] },
+  { eu: [1, 0, 0], ev: [0, 1, 0], en: [0, 0, 1] },
+];
+
+const state = { raw: null, name: 'modelo', rot: new THREE.Matrix4(), pos: null, bbox: null, pieces: [], sheets: [], P: null };
+
+// ---------- Geometria 2D (Clipper) ----------
+function boolOp(subj, clip, type) {
+  const c = new C.Clipper();
+  c.AddPaths(subj, C.PolyType.ptSubject, true);
+  if (clip) c.AddPaths(clip, C.PolyType.ptClip, true);
+  const sol = new C.Paths();
+  c.Execute(type, sol, NZ, NZ);
+  return sol;
+}
+const union = paths => boolOp(paths, null, C.ClipType.ctUnion);
+
+function toEx(paths) {
+  const c = new C.Clipper();
+  c.AddPaths(paths, C.PolyType.ptSubject, true);
+  const tree = new C.PolyTree();
+  c.Execute(C.ClipType.ctUnion, tree, NZ, NZ);
+  return C.JS.PolyTreeToExPolygons(tree);
+}
+
+function areaMM(paths) {
+  let a = 0;
+  for (const p of paths) a += C.Clipper.Area(p);
+  return Math.abs(a) / (S * S);
+}
+
+function offsetPaths(paths, d) {
+  const co = new C.ClipperOffset(2, 0.25 * S);
+  co.AddPaths(paths, C.JoinType.jtMiter, C.EndType.etClosedPolygon);
+  const sol = new C.Paths();
+  co.Execute(sol, d * S);
+  return sol;
+}
+
+// Recorta linhas abertas (contornos) para dentro de uma região.
+function clipOpen(rings, region) {
+  if (!rings.length || !region.length) return [];
+  const c = new C.Clipper();
+  c.AddPaths(rings.map(r => [...r, r[0]]), C.PolyType.ptSubject, false);
+  c.AddPaths(region, C.PolyType.ptClip, true);
+  const tree = new C.PolyTree();
+  c.Execute(C.ClipType.ctIntersection, tree, NZ, NZ);
+  return C.Clipper.OpenPathsFromPolyTree(tree);
+}
+
+// Retângulo no plano 2D de uma peça, definido por intervalos em eixos do mundo.
+function rectFromWorld(fr, axis, c, ranges) {
+  const [i, j] = Object.keys(ranges).map(Number);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const a of ranges[i]) for (const b of ranges[j]) {
+    const P = [0, 0, 0]; P[axis] = c; P[i] = a; P[j] = b;
+    const u = dot(P, fr.eu), v = dot(P, fr.ev);
+    u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+  }
+  return [{ X: R(u0), Y: R(v0) }, { X: R(u1), Y: R(v0) }, { X: R(u1), Y: R(v1) }, { X: R(u0), Y: R(v1) }];
+}
+
+function compInfo(fr, axis) {
+  if (fr.eu[axis] !== 0) return { i: 0, s: fr.eu[axis] };
+  return { i: 1, s: fr.ev[axis] };
+}
+
+// Intervalos (no eixo w do mundo) onde a linha {eixo b = cb} atravessa material da peça.
+function lineIntervals(paths, fr, b, cb, w) {
+  const bi = compInfo(fr, b), wi = compInfo(fr, w);
+  const L = cb * bi.s * S;
+  const ws = [];
+  for (const path of paths) {
+    for (let k = 0; k < path.length; k++) {
+      const p = path[k], q = path[(k + 1) % path.length];
+      const pa = bi.i === 0 ? p.X : p.Y, qa = bi.i === 0 ? q.X : q.Y;
+      if ((pa <= L) === (qa <= L)) continue;
+      const t = (L - pa) / (qa - pa);
+      const pw = bi.i === 0 ? p.Y : p.X, qw = bi.i === 0 ? q.Y : q.X;
+      ws.push((pw + (qw - pw) * t) * wi.s / S);
+    }
+  }
+  ws.sort((x, y) => x - y);
+  const iv = [];
+  for (let k = 0; k + 1 < ws.length; k += 2) iv.push([ws[k], ws[k + 1]]);
+  return iv;
+}
+
+function crossings(rings, val, horizontal) {
+  const out = [];
+  for (const ring of rings) {
+    for (let k = 0; k < ring.length; k++) {
+      const p = ring[k], q = ring[(k + 1) % ring.length];
+      const pa = horizontal ? p.Y : p.X, qa = horizontal ? q.Y : q.X;
+      if ((pa <= val) === (qa <= val)) continue;
+      const t = (val - pa) / (qa - pa);
+      const pb = horizontal ? p.X : p.Y, qb = horizontal ? q.X : q.Y;
+      out.push(pb + (qb - pb) * t);
+    }
+  }
+  return out.sort((x, y) => x - y);
+}
+
+function insidePolys(polys, u, v) {
+  const pt = { X: R(u), Y: R(v) };
+  return polys.some(po => C.Clipper.PointInPolygon(pt, po.outer) !== 0 &&
+    po.holes.every(h => C.Clipper.PointInPolygon(pt, h) === 0));
+}
+
+// Acha um bom lugar (e tamanho) para escrever um texto dentro de um polígono.
+function labelSpot(po, text, maxSize) {
+  const rings = [po.outer, ...po.holes];
+  let vmin = Infinity, vmax = -Infinity;
+  for (const p of po.outer) { vmin = Math.min(vmin, p.Y); vmax = Math.max(vmax, p.Y); }
+  let best = null;
+  for (const f of [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8]) {
+    const y = vmin + (vmax - vmin) * f;
+    const xs = crossings(rings, y, true);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const x = (xs[k] + xs[k + 1]) / 2, width = xs[k + 1] - xs[k];
+      const ys = crossings(rings, x, false);
+      let h = 0;
+      for (let m = 0; m + 1 < ys.length; m += 2) if (ys[m] <= y && y <= ys[m + 1]) h = Math.min(y - ys[m], ys[m + 1] - y);
+      const size = Math.min(maxSize, (width / S) / (text.length * 0.62 + 0.8), (2 * h / S) * 0.7);
+      if (!best || size > best.size) best = { u: x / S, v: y / S, size };
+    }
+  }
+  return best && best.size >= 1 ? best : null;
+}
+
+// ---------- Fatiamento da malha ----------
+// Corta a malha (triângulos soltos, 9 floats cada) pelo plano {eixo n = c} e devolve a região 2D.
+function section(pos, n, c, fr) {
+  const next = new Map(), pt = new Map(), indeg = new Map();
+  const v = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], d = [0, 0, 0], k = ['', '', ''], A = [false, false, false];
+  const en = fr.en;
+  const EDGES = [[0, 1], [1, 2], [2, 0]];
+  for (let o = 0; o < pos.length; o += 9) {
+    d[0] = pos[o + n] - c; d[1] = pos[o + 3 + n] - c; d[2] = pos[o + 6 + n] - c;
+    A[0] = d[0] >= 0; A[1] = d[1] >= 0; A[2] = d[2] >= 0;
+    if (A[0] === A[1] && A[1] === A[2]) continue;
+    for (let i = 0; i < 3; i++) {
+      v[i][0] = pos[o + i * 3]; v[i][1] = pos[o + i * 3 + 1]; v[i][2] = pos[o + i * 3 + 2];
+      k[i] = v[i][0] + ',' + v[i][1] + ',' + v[i][2];
+    }
+    const cr = [];
+    for (const [i, j] of EDGES) {
+      if (A[i] === A[j]) continue;
+      let ia = i, ib = j;
+      if (k[ia] > k[ib]) { ia = j; ib = i; }   // ordem fixa → mesmo ponto nos dois triângulos vizinhos
+      const t = d[ia] / (d[ia] - d[ib]);
+      cr.push({
+        key: k[ia] + '|' + k[ib],
+        P: [v[ia][0] + (v[ib][0] - v[ia][0]) * t, v[ia][1] + (v[ib][1] - v[ia][1]) * t, v[ia][2] + (v[ib][2] - v[ia][2]) * t],
+      });
+    }
+    if (cr.length !== 2 || cr[0].key === cr[1].key) continue;
+    // Orienta o segmento pela normal do triângulo, para os contornos terem sentido consistente.
+    const e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
+    const e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
+    const N = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+    const D = [N[1] * en[2] - N[2] * en[1], N[2] * en[0] - N[0] * en[2], N[0] * en[1] - N[1] * en[0]];
+    let [s0, s1] = cr;
+    const seg = [s1.P[0] - s0.P[0], s1.P[1] - s0.P[1], s1.P[2] - s0.P[2]];
+    if (dot(seg, D) < 0) [s0, s1] = [s1, s0];
+    // Lista de saídas por nó: tolera malhas não-manifold (arestas compartilhadas por mais de 2 triângulos).
+    let out = next.get(s0.key);
+    if (!out) next.set(s0.key, out = []);
+    out.push(s1.key);
+    indeg.set(s1.key, (indeg.get(s1.key) || 0) + 1);
+    if (!pt.has(s0.key)) pt.set(s0.key, [dot(s0.P, fr.eu), dot(s0.P, fr.ev)]);
+    if (!pt.has(s1.key)) pt.set(s1.key, [dot(s1.P, fr.eu), dot(s1.P, fr.ev)]);
+  }
+  const paths = [];
+  const walk = start => {
+    const path = [];
+    let cur = start;
+    for (;;) {
+      const p = pt.get(cur);
+      path.push({ X: R(p[0]), Y: R(p[1]) });
+      const outs = next.get(cur);
+      if (!outs || !outs.length) break;
+      cur = outs.pop();          // cada segmento é usado uma vez só, então o laço sempre termina
+      if (cur === start) break;
+    }
+    if (path.length >= 3) paths.push(path);
+  };
+  // Pontas de cadeias abertas primeiro, depois os laços fechados.
+  for (const [key, outs] of next) while (outs.length > (indeg.get(key) || 0)) walk(key);
+  for (const [key, outs] of next) while (outs.length) walk(key);
+  if (!paths.length) return [];
+  return C.Clipper.CleanPolygons(union(paths), 0.02 * S);
+}
+
+// Plano das costas do modelo (onde encosta na parede / na placa).
+const zBack = P => state.bbox.min[2] + P.back * (state.bbox.max[2] - state.bbox.min[2]);
+
+function wallClip(paths, axis, c, P) {
+  if (!(P.back > 0) || !paths.length) return paths;
+  const zcut = zBack(P);
+  if (axis === 2) return c < zcut ? [] : paths;
+  const other = 3 - axis - 2;
+  return boolOp(paths, [rectFromWorld(FR[axis], axis, c, { 2: [zcut, 1e4], [other]: [-1e4, 1e4] })], C.ClipType.ctIntersection);
+}
+
+function axisRange(axis, P) {
+  return [axis === 2 ? zBack(P) : state.bbox.min[axis], state.bbox.max[axis]];
+}
+
+function slicePositions(axis, count, P) {
+  const [mn, mx] = axisRange(axis, P);
+  return Array.from({ length: count }, (_, i) => mn + (i + 1) / (count + 1) * (mx - mn));
+}
+
+// ---------- Placa de parede ----------
+// Formatos simétricos: só a metade direita, de cima (x=0) até embaixo (x=0). Altura 1, centro na origem.
+const PLAQUES = {
+  classic: [['M', 0, 0.46], ['Q', 0.12, 0.38, 0.24, 0.43], ['Q', 0.33, 0.47, 0.41, 0.52], ['Q', 0.35, 0.42, 0.35, 0.31],
+    ['Q', 0.46, 0.16, 0.42, -0.04], ['C', 0.40, -0.28, 0.16, -0.36, 0, -0.5]],
+  heater: [['M', 0, 0.5], ['L', 0.4, 0.5], ['L', 0.4, 0.12], ['Q', 0.4, -0.3, 0, -0.5]],
+  oval: [['M', 0, 0.5], ['C', 0.22, 0.5, 0.38, 0.28, 0.38, 0], ['C', 0.38, -0.28, 0.22, -0.5, 0, -0.5]],
+  rrect: [['M', 0, 0.5], ['L', 0.3, 0.5], ['Q', 0.38, 0.5, 0.38, 0.42], ['L', 0.38, -0.42], ['Q', 0.38, -0.5, 0.3, -0.5], ['L', 0, -0.5]],
+  hex: [['M', 0, 0.5], ['L', 0.43, 0.25], ['L', 0.43, -0.25], ['L', 0, -0.5]],
+};
+
+function plaqueRings(kind) {
+  if (kind === 'custom') return state.customPlaque;
+  const half = [];
+  let x = 0, y = 0;
+  for (const seg of PLAQUES[kind]) {
+    const [op, ...a] = seg;
+    if (op === 'M' || op === 'L') { [x, y] = a; half.push([x, y]); continue; }
+    const N = 16;
+    for (let i = 1; i <= N; i++) {
+      const t = i / N, s = 1 - t;
+      if (op === 'Q') half.push([s * s * x + 2 * s * t * a[0] + t * t * a[2], s * s * y + 2 * s * t * a[1] + t * t * a[3]]);
+      else half.push([s * s * s * x + 3 * s * s * t * a[0] + 3 * s * t * t * a[2] + t * t * t * a[4],
+        s * s * s * y + 3 * s * s * t * a[1] + 3 * s * t * t * a[3] + t * t * t * a[5]]);
+    }
+    [x, y] = [a[a.length - 2], a[a.length - 1]];
+  }
+  const left = half.slice(1, -1).reverse().map(([px, py]) => [-px, py]);
+  return [[...half, ...left]];
+}
+
+// Lê o contorno de um STL de placa: corta no meio do eixo mais fino e normaliza para altura 1.
+function plaqueFromSTL(pos) {
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i++) { const k = i % 3; if (pos[i] < min[k]) min[k] = pos[i]; if (pos[i] > max[k]) max[k] = pos[i]; }
+  const ext = [0, 1, 2].map(k => max[k] - min[k]);
+  const n = ext.indexOf(Math.min(...ext));
+  const paths = section(pos, n, (min[n] + max[n]) / 2, FR[n]);
+  if (!paths.length) throw new Error('Não achei o contorno da placa.');
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const p of paths) for (const q of p) { u0 = Math.min(u0, q.X); u1 = Math.max(u1, q.X); v0 = Math.min(v0, q.Y); v1 = Math.max(v1, q.Y); }
+  const s = v1 - v0, cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+  return paths.map(p => p.map(q => [(q.X - cu) / s, (q.Y - cv) / s]));
+}
+
+// Lê o contorno de um SVG: amostra todas as formas (com transformações) e une com regra par-ímpar,
+// então formas dentro de outras viram furos.
+function plaqueFromSVG(text) {
+  const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const root = doc.documentElement;
+  if (root.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error('SVG inválido.');
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden';
+  const svg = document.importNode(root, true);
+  host.appendChild(svg);
+  document.body.appendChild(host);
+  const rings = [];
+  try {
+    for (const el of svg.querySelectorAll('path, rect, circle, ellipse, polygon, polyline')) {
+      if (el.closest('defs, clipPath, mask, symbol')) continue;
+      const len = el.getTotalLength();
+      if (!(len > 0)) continue;
+      const m = el.getCTM() || new DOMMatrix();
+      const N = Math.min(4000, Math.max(64, Math.ceil(len)));
+      const step = len / N;
+      let ring = [], prev = null;
+      for (let i = 0; i <= N; i++) {
+        const p = el.getPointAtLength(i * step);
+        // Um "pulo" entre amostras vizinhas = começo de um novo subcaminho (comando M).
+        if (prev && Math.hypot(p.x - prev.x, p.y - prev.y) > step * 2.5 + 1e-6) {
+          if (ring.length >= 3) rings.push(ring);
+          ring = [];
+        }
+        const q = new DOMPoint(p.x, p.y).matrixTransform(m);
+        ring.push([q.x, -q.y]);   // SVG tem y para baixo
+        prev = p;
+      }
+      if (ring.length >= 3) rings.push(ring);
+    }
+  } finally {
+    host.remove();
+  }
+  if (!rings.length) throw new Error('Não achei formas no SVG.');
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const r of rings) for (const [x, y] of r) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const s = y1 - y0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, K = 1e5;
+  const c = new C.Clipper();
+  c.AddPaths(rings.map(r => r.map(([x, y]) => ({ X: Math.round((x - cx) / s * K), Y: Math.round((y - cy) / s * K) }))), C.PolyType.ptSubject, true);
+  const sol = new C.Paths();
+  c.Execute(C.ClipType.ctUnion, sol, C.PolyFillType.pftEvenOdd, C.PolyFillType.pftEvenOdd);
+  return C.Clipper.CleanPolygons(sol, 0.0005 * K).map(p => p.map(q => [q.X / K, q.Y / K]));
+}
+
+// Cria a placa atrás do modelo e as abas das peças perpendiculares à parede.
+function addPlaque(pieces, P) {
+  if (P.plaque === 'none') return pieces;
+  const rings = plaqueRings(P.plaque);
+  if (!rings) return pieces;
+  const zb = zBack(P);
+  // Tamanho e posição a partir da "pegada" do modelo na parede.
+  // Profundidade onde o modelo já "encosta de verdade": costas arredondadas (pela simplificação ou
+  // por um pescoço inclinado) tocam a parede só num ponto. As abas crescem até essa profundidade.
+  const depth = state.bbox.max[2] - zb;
+  const ref = areaMM(section(state.pos, 2, zb + depth * 0.08, FR[2]));
+  let zProbe = zb + 0.5, back = section(state.pos, 2, zProbe, FR[2]);
+  if (!(P.back > 0)) {
+    for (const f of [0.01, 0.02, 0.04, 0.06, 0.08]) {
+      if (areaMM(back) >= ref * 0.6) break;
+      zProbe = zb + Math.max(0.5, depth * f);
+      back = section(state.pos, 2, zProbe, FR[2]);
+    }
+  }
+  let cx = 0, cy = 0, h;
+  if (back.length) {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const p of back) for (const q of p) { x0 = Math.min(x0, q.X); x1 = Math.max(x1, q.X); y0 = Math.min(y0, q.Y); y1 = Math.max(y1, q.Y); }
+    cx = (x0 + x1) / 2 / S; cy = (y0 + y1) / 2 / S;
+    h = Math.max((y1 - y0) / S, (x1 - x0) / S / 0.8);
+  } else {
+    h = Math.max(state.bbox.max[1] - state.bbox.min[1], state.bbox.max[0] - state.bbox.min[0]) * 0.6;
+  }
+  h *= P.pSize / 100;
+  cy += P.pOff;
+  let paths = union(rings.map(r => r.map(([x, y]) => ({ X: R(cx + x * h), Y: R(cy + y * h) }))));
+  const plaqueRegion = paths;
+  const plaqueEx = toEx(plaqueRegion);
+  const slots = [];
+  const fitHalf = (P.t + P.fit) / 2;
+  for (const p of pieces) {
+    if (p.axis === 2) continue;
+    const r = 1 - p.axis;                       // eixo no plano da peça, paralelo à parede (Y para X, X para Y)
+    const iv = lineIntervals(p.paths, p.fr, 2, zProbe, r);
+    const tabs = [];
+    for (const [r0, r1] of iv) {
+      const L = r1 - r0;
+      if (L < 8) continue;
+      const centers = L < 60 ? [(r0 + r1) / 2] : [r0 + L * 0.25, r0 + L * 0.75];
+      const len = Math.min(25, L < 60 ? L * 0.5 : L * 0.25);
+      for (const m of centers) {
+        const slot = rectFromWorld(FR[2], 2, zb, { [p.axis]: [p.c - fitHalf, p.c + fitHalf], [r]: [m - len / 2 - P.fit / 2, m + len / 2 + P.fit / 2] });
+        const ok = slot.every(q => plaqueEx.some(po => C.Clipper.PointInPolygon(q, po.outer) === 1 && po.holes.every(hh => C.Clipper.PointInPolygon(q, hh) === 0)));
+        if (!ok) continue;
+        slots.push(slot);
+        tabs.push(rectFromWorld(p.fr, p.axis, p.c, { 2: [zb - P.tp, zProbe + 0.6], [r]: [m - len / 2, m + len / 2] }));
+      }
+    }
+    if (tabs.length) {
+      p.paths = union([...p.paths, ...tabs]);
+      p.polys = toEx(p.paths).filter(po => Math.abs(C.Clipper.Area(po.outer)) / (S * S) >= Math.max(4, P.t * P.t));
+      refreshBB(p);
+    }
+  }
+  if (slots.length) paths = boolOp(paths, slots, C.ClipType.ctDifference);
+  const plaque = { fam: 'P', id: 'P', axis: 2, c: zb - P.tp / 2, thick: P.tp, fr: FR[2], paths, mates: [], guides: [] };
+  if (P.pBorder && P.dest === 'laser') {
+    const inner = offsetPaths(plaqueRegion, -Math.max(6, h * 0.035));
+    plaque.guides = inner.map(r => [...r, r[0]]);
+  }
+  const minA = Math.max(4, P.t * P.t);
+  if (finalize(plaque, P, minA)) pieces.push(plaque);
+  return pieces;
+}
+
+// ---------- Geração das peças ----------
+function genEgg(P) {
+  const a = P.axA, b = P.axB;
+  if (a === b) throw new Error('As famílias A e B precisam de eixos diferentes.');
+  const w = 3 - a - b;
+  const minA = Math.max(4, P.t * P.t);
+  const make = (axis, count, fam) => {
+    const out = [];
+    for (const c of slicePositions(axis, count, P)) {
+      const paths = wallClip(section(state.pos, axis, c, FR[axis]), axis, c, P);
+      if (areaMM(paths) < minA) continue;
+      out.push({ fam, id: fam + (out.length + 1), axis, c, fr: FR[axis], paths, slots: [], mates: [] });
+    }
+    return out;
+  };
+  const As = make(a, P.nA, 'A'), Bs = make(b, P.nB, 'B');
+  const half = (P.t + P.fit) / 2, ext = 1, L = P.mateSize;
+
+  const mateOffset = (fr, text) => compInfo(fr, w).i === 0 ? (text.length * 0.62 * L) / 2 + L * 0.5 : L * 1.1;
+  for (const pa of As) for (const pb of Bs) {
+    const ia = lineIntervals(pa.paths, pa.fr, b, pb.c, w);
+    const ib = lineIntervals(pb.paths, pb.fr, a, pa.c, w);
+    for (const [x0, x1] of ia) for (const [y0, y1] of ib) {
+      const o0 = Math.max(x0, y0), o1 = Math.min(x1, y1);
+      if (o1 - o0 < 0.5) continue;
+      const m = (o0 + o1) / 2;
+      const aW = P.flip ? [x0 - ext, m] : [m, x1 + ext];
+      const bW = P.flip ? [m, y1 + ext] : [y0 - ext, m];
+      pa.slots.push(rectFromWorld(pa.fr, a, pa.c, { [b]: [pb.c - half, pb.c + half], [w]: aW }));
+      pb.slots.push(rectFromWorld(pb.fr, b, pb.c, { [a]: [pa.c - half, pa.c + half], [w]: bW }));
+      // Número da peça vizinha logo abaixo do fim da fenda.
+      const offA = mateOffset(pa.fr, pb.id), offB = mateOffset(pb.fr, pa.id);
+      if ((o1 - o0) / 2 > Math.max(offA, offB) * 1.6) {
+        const at = (wv, piece) => { const p3 = [0, 0, 0]; p3[a] = pa.c; p3[b] = pb.c; p3[w] = wv; return [dot(p3, piece.fr.eu), dot(p3, piece.fr.ev)]; };
+        const [ua, va] = at(P.flip ? m + offA : m - offA, pa);
+        const [ub, vb] = at(P.flip ? m - offB : m + offB, pb);
+        pa.mates.push({ u: ua, v: va, text: pb.id });
+        pb.mates.push({ u: ub, v: vb, text: pa.id });
+      }
+    }
+  }
+  const all = [...As, ...Bs];
+  for (const p of all) if (p.slots.length) p.paths = boolOp(p.paths, p.slots, C.ClipType.ctDifference);
+  return all.filter(p => finalize(p, P, minA));
+}
+
+function genStacked(P) {
+  const n = P.axS, [mn, mx] = axisRange(n, P);
+  const count = Math.floor((mx - mn) / P.t + 1e-6);
+  if (count < 1) throw new Error('O modelo é mais fino que uma chapa.');
+  if (count > 600) throw new Error(`Seriam ${count} camadas. Aumente a espessura ou diminua o tamanho.`);
+  const offset = ((mx - mn) - count * P.t) / 2;
+  const minA = Math.max(4, P.t * P.t);
+  const layers = [];
+  for (let i = 0; i < count; i++) {
+    const c = mn + offset + (i + 0.5) * P.t;
+    layers.push({ c, paths: wallClip(section(state.pos, n, c, FR[n]), n, c, P) });
+  }
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const L = layers[i];
+    if (areaMM(L.paths) < minA) continue;
+    const p = { fam: 'L', id: String(out.length + 1), axis: n, c: L.c, fr: FR[n], paths: L.paths, mates: [], guides: [] };
+    if (P.guides && i + 1 < count && layers[i + 1].paths.length && areaMM(layers[i + 1].paths) >= minA)
+      p.guides = clipOpen(layers[i + 1].paths, offsetPaths(L.paths, -0.6));
+    if (finalize(p, P, minA)) out.push(p);
+  }
+  return out;
+}
+
+function refreshBB(p) {
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const po of p.polys) for (const q of po.outer) {
+    u0 = Math.min(u0, q.X); u1 = Math.max(u1, q.X); v0 = Math.min(v0, q.Y); v1 = Math.max(v1, q.Y);
+  }
+  p.bb = { u0: u0 / S, u1: u1 / S, v0: v0 / S, v1: v1 / S, w: (u1 - u0) / S, h: (v1 - v0) / S };
+}
+
+function finalize(p, P, minA) {
+  p.polys = toEx(p.paths).filter(po => Math.abs(C.Clipper.Area(po.outer)) / (S * S) >= minA);
+  if (!p.polys.length) return false;
+  // Egg crate: uma ilha que nenhuma fenda atravessa não se prende a nada (ponta de chifre, bigode solto).
+  // Fica sempre o corpo principal da peça; as outras ilhas só ficam se tiverem pelo menos um encaixe.
+  if (p.slots && p.polys.length > 1) {
+    const box = path => path.reduce((b, q) => [Math.min(b[0], q.X), Math.min(b[1], q.Y), Math.max(b[2], q.X), Math.max(b[3], q.Y)], [Infinity, Infinity, -Infinity, -Infinity]);
+    const slotBoxes = p.slots.map(box), M = S;   // 1 mm de folga
+    const largest = p.polys.reduce((a, b) => Math.abs(C.Clipper.Area(b.outer)) > Math.abs(C.Clipper.Area(a.outer)) ? b : a);
+    p.polys = p.polys.filter(po => {
+      if (po === largest) return true;
+      const b = box(po.outer);
+      return slotBoxes.some(s => s[0] <= b[2] + M && s[2] >= b[0] - M && s[1] <= b[3] + M && s[3] >= b[1] - M);
+    });
+    p.paths = p.polys.flatMap(po => [po.outer, ...po.holes]);
+  }
+  refreshBB(p);
+  p.labels = [];
+  if (P.labels) {
+    for (const po of p.polys) {
+      const spot = labelSpot(po, p.id, P.labelSize);
+      if (spot) p.labels.push({ ...spot, text: p.id });
+    }
+    for (const m of p.mates) {
+      const hw = m.text.length * 0.31 * P.mateSize;
+      if (insidePolys(p.polys, m.u, m.v) && insidePolys(p.polys, m.u - hw, m.v) && insidePolys(p.polys, m.u + hw, m.v))
+        p.labels.push({ ...m, size: P.mateSize });
+    }
+  }
+  return true;
+}
+
+// ---------- Distribuição nas chapas ----------
+// MaxRects (best short side fit) com rotação de 90°, usando o retângulo envolvente de cada peça.
+function splitFree(free, r) {
+  const out = [];
+  for (const f of free) {
+    if (r.x >= f.x + f.w || r.x + r.w <= f.x || r.y >= f.y + f.h || r.y + r.h <= f.y) { out.push(f); continue; }
+    if (r.x > f.x) out.push({ x: f.x, y: f.y, w: r.x - f.x, h: f.h });
+    if (r.x + r.w < f.x + f.w) out.push({ x: r.x + r.w, y: f.y, w: f.x + f.w - r.x - r.w, h: f.h });
+    if (r.y > f.y) out.push({ x: f.x, y: f.y, w: f.w, h: r.y - f.y });
+    if (r.y + r.h < f.y + f.h) out.push({ x: f.x, y: r.y + r.h, w: f.w, h: f.y + f.h - r.y - r.h });
+  }
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  return out.filter((a, i) => !out.some((b, j) => j !== i && inside(a, b) && (!inside(b, a) || j < i)));
+}
+
+function layout(pieces, P) {
+  const g = P.gap, W = P.sheetW - 2 * P.margin + g, H = P.sheetH - 2 * P.margin + g;
+  const items = pieces.map(p => ({ p, w: p.bb.w + g, h: p.bb.h + g }))
+    .sort((x, y) => Math.max(y.w, y.h) - Math.max(x.w, x.h) || y.w * y.h - x.w * x.h);
+  const sheets = [];
+  const tryPlace = (s, it) => {
+    let best = null;
+    for (const f of s.free) for (const rot of [false, true]) {
+      const w = rot ? it.h : it.w, h = rot ? it.w : it.h;
+      if (w > f.w || h > f.h) continue;
+      const score = Math.min(f.w - w, f.h - h);
+      if (!best || score < best.score) best = { score, x: f.x, y: f.y, w, h, rot };
+    }
+    if (!best) return false;
+    s.free = splitFree(s.free, best);
+    s.items.push({ p: it.p, rot: best.rot, x: P.margin + best.x, y: P.margin + best.y });
+    return true;
+  };
+  for (const it of items) {
+    if (sheets.some(s => !s.over && tryPlace(s, it))) continue;
+    const s = { w: P.sheetW, h: P.sheetH, free: [{ x: 0, y: 0, w: W, h: H }], items: [] };
+    if (tryPlace(s, it)) { sheets.push(s); continue; }
+    // Peça maior que a chapa: vai sozinha numa chapa do tamanho dela.
+    sheets.push({ w: it.p.bb.w + 2 * P.margin, h: it.p.bb.h + 2 * P.margin, over: true, items: [{ p: it.p, rot: false, x: P.margin, y: P.margin }] });
+  }
+  return sheets.sort((x, y) => (x.over ? 1 : 0) - (y.over ? 1 : 0));
+}
+
+// Converte (u,v) da peça (mm, y para cima) em (x,y) da chapa (mm, y para baixo).
+function placement(it) {
+  const bb = it.p.bb;
+  return it.rot ? (u, v) => [it.x + (v - bb.v0), it.y + (u - bb.u0)] : (u, v) => [it.x + (u - bb.u0), it.y + (bb.v1 - v)];
+}
+
+// ---------- Exportação ----------
+const fmt = n => String(+n.toFixed(3));
+const esc = s => s.replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+function ringD(ring, T, closed) {
+  let d = '';
+  ring.forEach((q, k) => { const [x, y] = T(q.X / S, q.Y / S); d += (k ? 'L' : 'M') + fmt(x) + ' ' + fmt(y); });
+  return closed ? d + 'Z' : d;
+}
+
+// preview = versão da tela (cores da interface e animação do laser); sem preview = arquivo para a máquina.
+function sheetSVG(s, preview) {
+  const sw = preview ? `stroke-width="${fmt(Math.max(s.w, s.h) / 380)}"` : 'stroke-width="0.1"';
+  let cut = '', eng = '', txt = '', n = 0;
+  const delay = () => preview ? ` class="cut" pathLength="1" style="animation-delay:${fmt(Math.min(n++ * 0.06, 2.4))}s"` : '';
+  for (const it of s.items) {
+    const T = placement(it);
+    if (preview) for (const po of it.p.polys) cut += `<path${delay()} d="${[po.outer, ...po.holes].map(r => ringD(r, T, true)).join('')}"/>`;
+    else for (const po of it.p.polys) for (const ring of [po.outer, ...po.holes]) cut += `<path d="${ringD(ring, T, true)}"/>`;
+    for (const gl of it.p.guides || []) eng += `<path${preview ? ' class="eng"' : ''} d="${ringD(gl, T, false)}"/>`;
+    for (const lb of it.p.labels) {
+      const [x, y] = T(lb.u, lb.v);
+      const r = it.rot ? 90 : 0;
+      txt += `<text${preview ? ' class="lbl-t"' : ''} x="${fmt(x)}" y="${fmt(y + lb.size * 0.35)}" font-size="${fmt(lb.size)}"${r ? ` transform="rotate(${r} ${fmt(x)} ${fmt(y)})"` : ''}>${esc(lb.text)}</text>`;
+    }
+  }
+  const fdm = state.P && state.P.dest === 'fdm';
+  const bg = !preview ? '' : fdm
+    ? `<rect width="${fmt(s.w)}" height="${fmt(s.h)}" rx="${fmt(s.w / 40)}" fill="#15191F" stroke="#2A313A" ${sw}/>`
+    : `<rect width="${fmt(s.w)}" height="${fmt(s.h)}" rx="${fmt(s.w / 120)}" fill="#1D1915" stroke="#3A322A" ${sw}/>`;
+  const C1 = preview ? '#FFA35C' : '#ff0000', C2 = preview ? '#5C8DF5' : '#0000ff';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(s.w)}mm" height="${fmt(s.h)}mm" viewBox="0 0 ${fmt(s.w)} ${fmt(s.h)}"${preview ? ' class="draw" role="img"' : ''}>` + bg +
+    `<g id="corte" fill="${preview ? 'rgba(255,163,92,0.07)' : 'none'}" fill-rule="evenodd" stroke="${C1}" stroke-linejoin="round" ${sw}>${cut}</g>` +
+    `<g id="gravacao" fill="none" stroke="${C2}" ${sw}${preview ? ` stroke-dasharray="${fmt(s.w / 120)} ${fmt(s.w / 160)}"` : ''}>${eng}</g>` +
+    `<g id="texto" fill="${C2}" stroke="none" font-family="${preview ? "'Geist Mono', monospace" : 'Arial, Helvetica, sans-serif'}" font-weight="${preview ? 600 : 400}" text-anchor="middle">${txt}</g></svg>`;
+}
+
+function sheetDXF(s) {
+  const o = [];
+  const L = (...a) => { for (const x of a) o.push(String(x)); };
+  const fy = y => fmt(s.h - y);
+  L(0, 'SECTION', 2, 'HEADER', 9, '$ACADVER', 1, 'AC1009', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC');
+  L(0, 'SECTION', 2, 'TABLES', 0, 'TABLE', 2, 'LAYER', 70, 2,
+    0, 'LAYER', 2, 'CORTE', 70, 0, 62, 1, 6, 'CONTINUOUS',
+    0, 'LAYER', 2, 'GRAVACAO', 70, 0, 62, 5, 6, 'CONTINUOUS',
+    0, 'ENDTAB', 0, 'ENDSEC');
+  L(0, 'SECTION', 2, 'ENTITIES');
+  const poly = (ring, T, layer, closed) => {
+    L(0, 'POLYLINE', 8, layer, 66, 1, 70, closed ? 1 : 0, 10, 0, 20, 0, 30, 0);
+    for (const q of ring) { const [x, y] = T(q.X / S, q.Y / S); L(0, 'VERTEX', 8, layer, 10, fmt(x), 20, fy(y), 30, 0); }
+    L(0, 'SEQEND', 8, layer);
+  };
+  for (const it of s.items) {
+    const T = placement(it);
+    for (const po of it.p.polys) for (const ring of [po.outer, ...po.holes]) poly(ring, T, 'CORTE', true);
+    for (const gl of it.p.guides || []) poly(gl, T, 'GRAVACAO', false);
+    for (const lb of it.p.labels) {
+      const [x, y] = T(lb.u, lb.v);
+      L(0, 'TEXT', 8, 'GRAVACAO', 10, fmt(x), 20, fy(y), 30, 0, 40, fmt(lb.size), 1, lb.text, 50, it.rot ? 270 : 0, 72, 1, 73, 2, 11, fmt(x), 21, fy(y), 31, 0);
+    }
+  }
+  L(0, 'ENDSEC', 0, 'EOF');
+  return o.join('\r\n') + '\r\n';
+}
+
+// 3MF: um arquivo por mesa, cada peça como objeto separado já posicionado na mesa.
+function sheet3MF(s, t) {
+  let objs = '', items = '', id = 1;
+  for (const it of s.items) {
+    const T = placement(it);
+    const g0 = pieceGeometry(it.p, t);
+    g0.deleteAttribute('normal'); g0.deleteAttribute('uv');
+    const g = mergeVertices(g0, 1e-4), pos = g.attributes.position, idx = g.index;
+    const vs = [], ts = [];
+    for (let i = 0; i < pos.count; i++) {
+      const [x, y] = T(pos.getX(i), pos.getY(i));
+      vs.push(`<vertex x="${fmt(x)}" y="${fmt(s.h - y)}" z="${fmt(pos.getZ(i))}"/>`);
+    }
+    for (let i = 0; i < idx.count; i += 3) ts.push(`<triangle v1="${idx.getX(i)}" v2="${idx.getX(i + 1)}" v3="${idx.getX(i + 2)}"/>`);
+    objs += `<object id="${id}" type="model" name="${esc(it.p.id)}"><mesh><vertices>${vs.join('')}</vertices><triangles>${ts.join('')}</triangles></mesh></object>`;
+    items += `<item objectid="${id}"/>`;
+    id++;
+  }
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>');
+  zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>');
+  zip.file('3D/3dmodel.model', `<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="pt-BR" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><metadata name="Application">Laserlayer</metadata><resources>${objs}</resources><build>${items}</build></model>`);
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+}
+
+function pieceGeometry(p, t) {
+  const shapes = p.polys.map(po => {
+    const sh = new THREE.Shape(po.outer.map(q => new THREE.Vector2(q.X / S, q.Y / S)));
+    for (const h of po.holes) sh.holes.push(new THREE.Path(h.map(q => new THREE.Vector2(q.X / S, q.Y / S))));
+    return sh;
+  });
+  return new THREE.ExtrudeGeometry(shapes, { depth: p.thick || t, bevelEnabled: false, curveSegments: 1 });
+}
+
+function pieceMatrix(p, t) {
+  t = p.thick || t;   // a placa pode ter espessura própria
+  const V = a => new THREE.Vector3(a[0], a[1], a[2]);
+  const m = new THREE.Matrix4().makeBasis(V(p.fr.eu), V(p.fr.ev), V(p.fr.en));
+  m.setPosition(V(p.fr.en).multiplyScalar(p.c - t / 2));
+  return m;
+}
+
+function stlBinary(geoms) {
+  const list = geoms.map(g => g.index ? g.toNonIndexed() : g);
+  const tris = list.reduce((n, g) => n + g.attributes.position.count / 3, 0);
+  const buf = new ArrayBuffer(84 + 50 * tris), dv = new DataView(buf);
+  dv.setUint32(80, tris, true);
+  let o = 84;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+  for (const g of list) {
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i += 3) {
+      a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+      n.subVectors(c, b).cross(new THREE.Vector3().subVectors(a, b)).normalize();
+      for (const v of [n, a, b, c]) { dv.setFloat32(o, v.x, true); dv.setFloat32(o + 4, v.y, true); dv.setFloat32(o + 8, v.z, true); o += 12; }
+      o += 2;
+    }
+  }
+  return buf;
+}
+
+function download(data, filename, type) {
+  const url = URL.createObjectURL(data instanceof Blob ? data : new Blob([data], { type }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+async function exportFiles(files, zipName) {
+  if (files.length === 1) return download(files[0].data, files[0].name, files[0].type);
+  const zip = new JSZip();
+  for (const f of files) zip.file(f.name, f.data);
+  download(await zip.generateAsync({ type: 'blob' }), zipName);
+}
+
+const base = () => `${state.name}_${state.P.mode === 'egg' ? 'eggcrate' : 'empilhado'}`;
+
+$('exSVG').onclick = () => exportFiles(state.sheets.map((s, i) => ({ name: `${base()}_chapa${i + 1}.svg`, data: sheetSVG(s, false), type: 'image/svg+xml' })), `${base()}_svg.zip`);
+$('exDXF').onclick = () => exportFiles(state.sheets.map((s, i) => ({ name: `${base()}_chapa${i + 1}.dxf`, data: sheetDXF(s), type: 'application/dxf' })), `${base()}_dxf.zip`);
+$('ex3MF').onclick = async () => {
+  const files = [];
+  for (const [i, s] of state.sheets.entries()) files.push({ name: `${base()}_mesa${i + 1}.3mf`, data: await sheet3MF(s, state.P.t), type: 'model/3mf' });
+  exportFiles(files, `${base()}_3mf.zip`);
+};
+$('exSTL').onclick =() => exportFiles(state.pieces.map(p => ({ name: `${base()}_peca_${p.id}.stl`, data: stlBinary([pieceGeometry(p, state.P.t)]), type: 'model/stl' })), `${base()}_stl.zip`);
+$('exSTLa').onclick = () => {
+  const geoms = state.pieces.map(p => pieceGeometry(p, state.P.t).applyMatrix4(pieceMatrix(p, state.P.t)));
+  download(stlBinary(geoms), `${base()}_montado.stl`, 'model/stl');
+};
+
+// ---------- Visualização 3D ----------
+const view = $('view3d');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0d10);
+const camera = new THREE.PerspectiveCamera(40, 1, 1, 20000);
+camera.position.set(500, 300, 700);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+const hemi = new THREE.HemisphereLight(0xfff1e2, 0x1b2027, 1.5);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+sun.position.set(0.6, 1, 0.8);
+scene.add(sun);
+const rim = new THREE.DirectionalLight(0x5c8df5, 0.6);   // luz de contorno azulada, combina com a interface escura
+rim.position.set(-1, 0.4, -0.6);
+scene.add(rim);
+const wall = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ color: 0x1b2027, roughness: 1 }));
+wall.visible = false;
+scene.add(wall);
+const modelGroup = new THREE.Group(), pieceGroup = new THREE.Group();
+scene.add(modelGroup, pieceGroup);
+const matA = new THREE.MeshStandardMaterial({ color: 0xc9a27a, roughness: 0.85 });
+const matB = new THREE.MeshStandardMaterial({ color: 0xd8b58c, roughness: 0.85 });
+const matP = new THREE.MeshStandardMaterial({ color: 0x7a563c, roughness: 0.9 });
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x6b4b2e });
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0xffa35c, transparent: true, opacity: 0.22, depthWrite: false });
+// Plano de corte que varre o modelo logo depois de carregar.
+const sweep = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0xffa35c, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+sweep.rotation.y = Math.PI / 2;
+sweep.visible = false;
+scene.add(sweep);
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const anim = { items: [], start: 0, sweepStart: 0, sweepEnd: 0 };
+
+// ---------- Modo vitrine: textura de MDF, bordas queimadas pelo laser, parede e luz de spot ----------
+function noiseTexture(base, spread, fibers, size = 256) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d'), img = g.createImageData(size, size);
+  const [r, gg, b] = base;
+  for (let i = 0; i < size * size; i++) {
+    const n = (Math.random() - 0.5) * spread;
+    img.data[i * 4] = r + n; img.data[i * 4 + 1] = gg + n; img.data[i * 4 + 2] = b + n * 0.8; img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  // Fibras curtas do MDF / manchas do reboco.
+  g.globalAlpha = 0.07;
+  for (let i = 0; i < fibers; i++) {
+    g.strokeStyle = Math.random() < 0.5 ? '#000' : '#fff';
+    g.lineWidth = 1;
+    const x = Math.random() * size, y = Math.random() * size, a = Math.random() * Math.PI;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * 6, y + Math.sin(a) * 6); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const mdfTex = noiseTexture([201, 160, 118], 26, 1800);
+mdfTex.repeat.set(0.01, 0.01);   // ExtrudeGeometry usa as coordenadas em mm como UV
+const showFace = new THREE.MeshStandardMaterial({ map: mdfTex, roughness: 0.82 });
+const showFaceP = new THREE.MeshStandardMaterial({ map: mdfTex, color: 0x9a7354, roughness: 0.85 });
+const burnt = new THREE.MeshStandardMaterial({ color: 0x3a2516, roughness: 0.95 });   // borda escurecida pelo corte a laser
+const plasterTex = noiseTexture([70, 66, 61], 14, 600, 512);
+const showWall = new THREE.MeshStandardMaterial({ map: plasterTex, roughness: 1 });
+const plainWall = wall.material;
+const spot = new THREE.SpotLight(0xffe2c0, 0, 0, 0.55, 0.65, 0);
+spot.castShadow = true;
+spot.shadow.mapSize.set(2048, 2048);
+spot.shadow.bias = -0.0004;
+spot.shadow.radius = 4;
+scene.add(spot, spot.target);
+const showcase = { on: false, sway: true, t0: 0, az: 0, polar: 0, dist: 0 };
+
+function applyShowcase(on) {
+  showcase.on = on;
+  document.body.classList.toggle('showcase', on);
+  $('showcaseBtn').setAttribute('aria-pressed', String(on));
+  $('snapBtn').hidden = !on;
+  if (on && viewState.main !== '3d') { viewState.main = '3d'; layoutViews(); }
+  scene.background = new THREE.Color(on ? 0x12100e : 0x0b0d10);
+  hemi.intensity = on ? 0.45 : 1.5;
+  sun.intensity = on ? 0.5 : 2.2;
+  rim.intensity = on ? 0.25 : 0.6;
+  spot.intensity = on ? 3.2 : 0;
+  wall.material = on ? showWall : plainWall;
+  wall.receiveShadow = on;
+  if (state.bbox) {
+    const { min, max } = state.bbox;
+    const size = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+    const ctr = new THREE.Vector3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+    spot.position.set(ctr.x + size * 0.5, ctr.y + size * 1.7, ctr.z + size * 1.5);
+    spot.target.position.copy(ctr);
+    spot.shadow.camera.near = size * 0.3; spot.shadow.camera.far = size * 6;
+    spot.shadow.camera.updateProjectionMatrix();
+    const ws = Math.max(max[0] - min[0], max[1] - min[1]) * (on ? 4 : 1.6);
+    plasterTex.repeat.set(ws / 400, ws / 400);
+    wall.scale.set(ws, ws, 1);
+    if (on) {
+      frameCamera();
+      // Câmera um pouco mais de frente, como quem olha o troféu na parede.
+      camera.position.copy(ctr).add(new THREE.Vector3(size * 0.55, size * 0.25, size * 1.9));
+      const off = camera.position.clone().sub(controls.target);
+      showcase.dist = off.length();
+      showcase.az = Math.atan2(off.x, off.z);
+      showcase.polar = Math.acos(off.y / showcase.dist);
+      showcase.t0 = performance.now();
+      showcase.sway = !reducedMotion();
+    }
+  }
+  if (state.pieces.length) buildPieces3D();
+}
+$('showcaseBtn').onclick = () => applyShowcase(!showcase.on);
+controls.addEventListener('start', () => { showcase.sway = false; });   // a pessoa assumiu a câmera
+$('snapBtn').onclick = () => {
+  renderer.render(scene, camera);
+  renderer.domElement.toBlob(b => download(b, `${state.name}_vitrine.png`));
+};
+
+function clearGroup(g) {
+  for (const ch of [...g.children]) { ch.geometry?.dispose(); g.remove(ch); }
+}
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view);
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+function tickAnimations(now) {
+  if (anim.items.length) {
+    let done = true;
+    for (const it of anim.items) {
+      const t = Math.min(1, Math.max(0, (now - anim.start - it.delay) / 650));
+      if (t < 1) done = false;
+      it.obj.visible = t > 0;
+      it.obj.position.copy(it.base).addScaledVector(it.off, 1 - easeOut(t));
+    }
+    if (done) anim.items = [];
+  }
+  if (now < anim.sweepEnd && state.bbox) {
+    const t = ((now - anim.sweepStart) / 2200) % 1;   // ida e volta a cada 2,2 s
+    const k = t < 0.5 ? t * 2 : 2 - t * 2;
+    const { min, max } = state.bbox;
+    sweep.visible = now >= anim.sweepStart;
+    sweep.position.set(min[0] + (max[0] - min[0]) * easeOut(k), (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+    sweep.scale.set((max[2] - min[2]) * 1.15, (max[1] - min[1]) * 1.15, 1);
+  } else sweep.visible = false;
+  if (showcase.on) sweep.visible = false;
+  // Vitrine: a câmera balança devagar de um lado para o outro até a pessoa mexer nela.
+  if (showcase.on && showcase.sway) {
+    const a = showcase.az + Math.sin((now - showcase.t0) / 2600) * 0.38;
+    const s = Math.sin(showcase.polar) * showcase.dist;
+    camera.position.set(controls.target.x + s * Math.sin(a), controls.target.y + Math.cos(showcase.polar) * showcase.dist, controls.target.z + s * Math.cos(a));
+  }
+}
+renderer.setAnimationLoop(now => { tickAnimations(now); controls.update(); renderer.render(scene, camera); });
+
+function frameCamera() {
+  const { min, max } = state.bbox;
+  const size = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  const ctr = new THREE.Vector3((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+  controls.target.copy(ctr);
+  camera.position.copy(ctr).add(new THREE.Vector3(size * 1.1, size * 0.5, size * 1.6));
+  camera.near = size / 100; camera.far = size * 50; camera.updateProjectionMatrix();
+}
+
+function buildModel3D() {
+  clearGroup(modelGroup);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(state.pos, 3));
+  g.computeVertexNormals();
+  modelGroup.add(new THREE.Mesh(g, ghostMat));
+  modelGroup.visible = $('showModel').checked;
+  const { min, max } = state.bbox;
+  const s = Math.max(max[0] - min[0], max[1] - min[1]) * 1.6;
+  wall.scale.set(s, s, 1);
+  wall.position.set(0, 0, min[2] - 1);
+  wall.visible = true;
+}
+
+function buildPieces3D() {
+  clearGroup(pieceGroup);
+  const t = state.P.t;
+  const animate = state.animateNext && !reducedMotion();
+  state.animateNext = false;
+  anim.items = [];
+  const { min, max } = state.bbox;
+  const size = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  // Ordem da montagem: placa, espinhas, costelas/camadas.
+  const order = { P: 0, A: 1, L: 1, B: 2 };
+  const seq = [...state.pieces].sort((a, b) => order[a.fam] - order[b.fam]);
+  const step = Math.min(70, 1400 / Math.max(1, seq.length));
+  seq.forEach((p, i) => {
+    const geo = pieceGeometry(p, t), m = pieceMatrix(p, t);
+    // ExtrudeGeometry tem dois grupos: faces (0) e laterais (1). Na vitrine a lateral é a borda queimada.
+    const face = showcase.on ? (p.fam === 'P' ? showFaceP : showFace) : (p.fam === 'P' ? matP : p.fam === 'B' ? matB : matA);
+    const mesh = new THREE.Mesh(geo, showcase.on ? [face, burnt] : face);
+    mesh.castShadow = mesh.receiveShadow = showcase.on;
+    mesh.applyMatrix4(m);
+    const objs = [mesh];
+    if (!showcase.on) {
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat);
+      edges.applyMatrix4(m);
+      objs.push(edges);
+    }
+    pieceGroup.add(...objs);
+    if (animate) {
+      // Cada peça chega de frente e de cima até o lugar dela.
+      const off = p.fam === 'P' ? new THREE.Vector3(0, 0, -size * 0.25) : new THREE.Vector3(0, size * 0.12, size * 0.6);
+      for (const obj of objs) {
+        anim.items.push({ obj, base: obj.position.clone(), off, delay: i * step });
+        obj.visible = false;
+      }
+    }
+  });
+  if (animate) {
+    anim.start = performance.now();
+    anim.sweepStart = anim.start + seq.length * step + 500;
+    anim.sweepEnd = anim.sweepStart + 2200 * 2;
+  }
+  // A parede fica logo atrás da placa (ou do modelo, se não houver placa).
+  const plaque = state.pieces.find(p => p.fam === 'P');
+  wall.position.z = (plaque ? plaque.c - plaque.thick / 2 : zBack(state.P)) - 1;
+}
+
+$('showModel').onchange = () => { modelGroup.visible = $('showModel').checked; };
+
+// ---------- Chapas (pré-visualização) ----------
+function renderSheets() {
+  const el = $('sheets');
+  if (!state.sheets.length) { el.innerHTML = '<p class="no-pieces">Nenhuma peça gerada.</p>'; return; }
+  const w = sheetWord();
+  el.innerHTML = '<div class="grid">' + state.sheets.map((s, i) =>
+    `<figure class="sheet" style="animation-delay:${Math.min(i * 0.06, 0.6)}s"><figcaption><b>${w} ${i + 1}</b><span>${fmt(s.w)} × ${fmt(s.h)} mm · ${s.items.length} peça(s)` +
+    `${s.over ? ` · <em class="warn">peça maior que a ${w.toLowerCase()}</em>` : ''}</span></figcaption>` +
+    `<div class="paper">${sheetSVG(s, true).replace('role="img"', `role="img" aria-label="${w} ${i + 1} com ${s.items.length} peças"`)}</div></figure>`).join('') + '</div>';
+  updatePipTitle();
+}
+
+// ---------- Modelo ----------
+function prepareModel() {
+  const raw = state.raw, e = state.rot.elements;
+  const p = new Float32Array(raw.length);
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < raw.length; i += 3) {
+    const x = raw[i], y = raw[i + 1], z = raw[i + 2];
+    const X = e[0] * x + e[4] * y + e[8] * z, Y = e[1] * x + e[5] * y + e[9] * z, Z = e[2] * x + e[6] * y + e[10] * z;
+    p[i] = X; p[i + 1] = Y; p[i + 2] = Z;
+    if (X < min[0]) min[0] = X; if (X > max[0]) max[0] = X;
+    if (Y < min[1]) min[1] = Y; if (Y > max[1]) max[1] = Y;
+    if (Z < min[2]) min[2] = Z; if (Z > max[2]) max[2] = Z;
+  }
+  const size = Math.max(20, parseFloat($('size').value) || 400);
+  const s = size / Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  const cx = (min[0] + max[0]) / 2, cy = (min[1] + max[1]) / 2, z0 = min[2];
+  for (let i = 0; i < p.length; i += 3) {
+    p[i] = (p[i] - cx) * s; p[i + 1] = (p[i + 1] - cy) * s; p[i + 2] = (p[i + 2] - z0) * s;
+  }
+  state.pos = p;
+  state.bbox = {
+    min: [(min[0] - cx) * s, (min[1] - cy) * s, 0],
+    max: [(max[0] - cx) * s, (max[1] - cy) * s, (max[2] - z0) * s],
+  };
+  const d = i => Math.round(state.bbox.max[i] - state.bbox.min[i]);
+  const tris = n => (n / 9).toLocaleString('pt-BR');
+  $('modelInfo').textContent = `${tris(raw.length)} tri` +
+    (raw !== state.rawFull ? ` (de ${tris(state.rawFull.length)})` : '') + ` · ${d(0)} × ${d(1)} × ${d(2)} mm`;
+  $('dropText').textContent = state.name + '.stl';
+  $('fileChip').hidden = false;
+  $('fileName').textContent = state.name + '.stl';
+  $('fileTris').textContent = `${tris(raw.length)} triângulos`;
+  buildModel3D();
+}
+
+// Simplificação "low-poly" com meshoptimizer (colapso de arestas, preserva a forma geral).
+async function simplifyMesh(pos, targetTris) {
+  await MeshoptSimplifier.ready;
+  const map = new Map(), verts = [], idx = new Uint32Array(pos.length / 3);
+  for (let i = 0; i < pos.length; i += 3) {
+    const k = pos[i] + ',' + pos[i + 1] + ',' + pos[i + 2];
+    let j = map.get(k);
+    if (j === undefined) { j = verts.length / 3; map.set(k, j); verts.push(pos[i], pos[i + 1], pos[i + 2]); }
+    idx[i / 3] = j;
+  }
+  const vf = new Float32Array(verts);
+  const [out] = MeshoptSimplifier.simplify(idx, vf, 3, targetTris * 3, 1, []);
+  const res = new Float32Array(out.length * 3);
+  for (let i = 0; i < out.length; i++) res.set(vf.subarray(out[i] * 3, out[i] * 3 + 3), i * 3);
+  return res;
+}
+
+async function applySimplify() {
+  const target = +$('simp').value;
+  const full = state.rawFull;
+  if (!target || full.length / 9 <= target) state.raw = full;
+  else {
+    setStatus('Simplificando a malha…');
+    try { state.raw = await simplifyMesh(full, target); }
+    catch (err) { console.error(err); state.raw = full; setStatus('Não consegui simplificar; usando a malha original.', true); }
+  }
+  prepareModel();
+}
+
+async function setModel(positions, name) {
+  state.rawFull = positions;
+  state.name = name.replace(/\.stl$/i, '').replace(/[^\w\-]+/g, '_') || 'modelo';
+  state.rot.identity();
+  state.animateNext = true;
+  $('empty3d').hidden = true;
+  await applySimplify();
+  frameCamera();
+  if (showcase.on) applyShowcase(true);
+  regenerate();
+}
+
+const loader = new STLLoader();
+function loadFile(file) {
+  if (!file) return;
+  if (!/\.stl$/i.test(file.name)) { setStatus('O arquivo precisa ser .stl', true); return; }
+  setStatus('Lendo arquivo…');
+  file.arrayBuffer().then(buf => {
+    const g = loader.parse(buf);
+    const pos = g.index ? g.toNonIndexed().attributes.position.array : g.attributes.position.array;
+    if (!pos.length) throw new Error('STL vazio.');
+    setModel(new Float32Array(pos), file.name);
+  }).catch(err => setStatus('Não consegui ler o STL: ' + err.message, true));
+}
+
+function demoGeometry() {
+  const parts = [];
+  const head = new THREE.SphereGeometry(1, 48, 32); head.scale(0.8, 0.9, 1.0); head.translate(0, 0.25, 0.9); parts.push(head);
+  const snout = new THREE.CylinderGeometry(0.3, 0.55, 1.1, 40, 1); snout.rotateX(Math.PI / 2); snout.translate(0, -0.05, 1.9); parts.push(snout);
+  const neck = new THREE.CylinderGeometry(0.75, 0.95, 1.2, 40, 1); neck.rotateX(Math.PI / 2); neck.translate(0, -0.25, 0.3); parts.push(neck);
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.ConeGeometry(0.22, 0.7, 24); ear.rotateZ(-sx * 0.9); ear.translate(sx * 0.85, 0.85, 0.75); parts.push(ear);
+    const horn = new THREE.ConeGeometry(0.12, 1.1, 24); horn.rotateZ(-sx * 0.35); horn.translate(sx * 0.4, 1.45, 0.95); parts.push(horn);
+  }
+  const arrays = parts.map(g => g.toNonIndexed().attributes.position.array);
+  const out = new Float32Array(arrays.reduce((n, a) => n + a.length, 0));
+  let o = 0;
+  for (const a of arrays) { out.set(a, o); o += a.length; }
+  return out;
+}
+
+// ---------- Exemplos prontos (modelados em código) ----------
+// Cada exemplo é uma cabeça de troféu feita de formas simples: elipsoides, troncos de cone e tubos.
+// O pescoço sempre termina em z = 0 (o plano da parede) e o focinho aponta para +z.
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+function sculpt() {
+  const parts = [];
+  const m = {
+    ell(c, r, rot = [0, 0, 0], seg = 18) {
+      const g = new THREE.SphereGeometry(1, seg, Math.max(8, Math.round(seg * 0.6)));
+      g.scale(r[0], r[1], r[2]);
+      g.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(...rot)));
+      g.translate(c[0], c[1], c[2]);
+      parts.push(g);
+      return m;
+    },
+    // Tronco de cone de a até b, raio ra em a e rb em b (rb ≈ 0 vira ponta).
+    seg(a, b, ra, rb, n = 16) {
+      const A = V3(...a), B = V3(...b), d = B.clone().sub(A), len = d.length();
+      const g = new THREE.CylinderGeometry(Math.max(rb, 0.004), Math.max(ra, 0.004), len, n, 1, false);
+      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(V3(0, 1, 0), d.normalize()));
+      const mid = A.add(B).multiplyScalar(0.5);
+      g.translate(mid.x, mid.y, mid.z);
+      parts.push(g);
+      return m;
+    },
+    // Corrente de troncos com juntas esféricas, afinando de r0 até r1 (chifres, bigodes, pescoços).
+    tube(pts, r0, r1, n = 12) {
+      const k = pts.length - 1;
+      for (let i = 0; i < k; i++) {
+        const ra = r0 + (r1 - r0) * i / k, rb = r0 + (r1 - r0) * (i + 1) / k;
+        m.seg(pts[i], pts[i + 1], ra, rb, n);
+        if (i > 0) m.ell(pts[i], [ra, ra, ra], [0, 0, 0], n);
+      }
+      return m;
+    },
+    // Chama fn(1) e fn(-1): o lado direito e o espelhado.
+    both(fn) { fn(1); fn(-1); return m; },
+    done() {
+      const arrays = parts.map(g => (g.index ? g.toNonIndexed() : g).attributes.position.array);
+      const out = new Float32Array(arrays.reduce((n, a) => n + a.length, 0));
+      let o = 0;
+      for (const a of arrays) { out.set(a, o); o += a.length; }
+      return out;
+    },
+  };
+  return m;
+}
+
+// Espinhos ao longo do alto do pescoço (dragões).
+function spikes(m, n, z0, z1, y0, y1, h, r) {
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0 : i / (n - 1), z = z0 + (z1 - z0) * t, y = y0 + (y1 - y0) * t;
+    m.seg([0, y, z], [0, y + h * (1 - t * 0.4), z - h * 0.45], r, 0.004, 8);
+  }
+}
+
+const EXAMPLES = [
+  { id: 'lobo-guara', name: 'Lobo-guará', group: 'Cerrado', preset: { nA: 3, nB: 10, plaque: 'classic' }, build: m => m
+    .tube([[0, -0.35, -0.02], [0, -0.35, 0.22], [0, 0, 0.85]], 0.55, 0.42, 16)
+    .ell([0, 0.32, 0.45], [0.22, 0.42, 0.55])
+    .ell([0, 0.12, 1.15], [0.4, 0.38, 0.45])
+    .seg([0, 0.04, 1.4], [0, -0.06, 2.25], 0.25, 0.08)
+    .seg([0, -0.14, 1.35], [0, -0.17, 2.0], 0.17, 0.06)
+    .ell([0, -0.04, 2.26], [0.09, 0.08, 0.07])
+    .both(s => m.seg([s * 0.2, 0.38, 1.1], [s * 0.48, 1.25, 0.98], 0.2, 0.02, 10).ell([s * 0.26, 0.22, 1.45], [0.07, 0.06, 0.05])) },
+
+  { id: 'onca', name: 'Onça-pintada', group: 'Cerrado', preset: { nA: 3, nB: 9, plaque: 'heater' }, build: m => m
+    .tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, -0.05, 0.8]], 0.75, 0.6, 16)
+    .ell([0, 0.1, 1.05], [0.62, 0.55, 0.55])
+    .ell([0, 0.3, 1.3], [0.42, 0.14, 0.25])
+    .ell([0, -0.12, 1.5], [0.34, 0.26, 0.3])
+    .ell([0, -0.02, 1.76], [0.13, 0.09, 0.08])
+    .ell([0, -0.4, 1.35], [0.26, 0.14, 0.26])
+    .both(s => m.ell([s * 0.4, -0.1, 1.18], [0.3, 0.3, 0.32]).ell([s * 0.42, 0.55, 0.88], [0.17, 0.17, 0.08], [0.3, 0, s * 0.5])) },
+
+  { id: 'capivara', name: 'Capivara', group: 'Cerrado', preset: { nA: 3, nB: 9, plaque: 'rrect' }, build: m => m
+    .tube([[0, -0.35, -0.02], [0, -0.35, 0.22], [0, -0.02, 0.7]], 0.7, 0.6, 16)
+    .ell([0, 0.1, 1.05], [0.46, 0.5, 0.6])
+    .ell([0, 0.32, 1.4], [0.33, 0.2, 0.55])
+    .ell([0, -0.05, 1.75], [0.38, 0.42, 0.36])
+    .both(s => m.ell([s * 0.27, 0.6, 0.85], [0.11, 0.13, 0.07]).ell([s * 0.32, 0.4, 1.22], [0.09, 0.09, 0.09]).ell([s * 0.13, 0.16, 2.07], [0.06, 0.05, 0.04])) },
+
+  { id: 'tamandua', name: 'Tamanduá-bandeira', group: 'Cerrado', preset: { nA: 3, nB: 12, plaque: 'oval' }, build: m => m
+    .tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, -0.02, 0.7]], 0.62, 0.42, 16)
+    .ell([0, 0.3, 0.32], [0.2, 0.35, 0.45])
+    .ell([0, 0.05, 0.95], [0.33, 0.33, 0.42])
+    .seg([0, 0.02, 1.15], [0, -0.28, 2.65], 0.21, 0.07)
+    .ell([0, -0.29, 2.67], [0.07, 0.06, 0.06])
+    .both(s => m.ell([s * 0.2, 0.34, 0.84], [0.08, 0.11, 0.05]).ell([s * 0.2, 0.15, 1.2], [0.05, 0.05, 0.05])) },
+
+  { id: 'veado-campeiro', name: 'Veado-campeiro', group: 'Cerrado', preset: { nA: 5, nB: 9, plaque: 'classic' }, build: m => m
+    .tube([[0, -0.45, -0.02], [0, -0.45, 0.22], [0, 0.05, 0.75]], 0.5, 0.35, 16)
+    .ell([0, 0.15, 1.0], [0.32, 0.3, 0.4])
+    .seg([0, 0.08, 1.2], [0, -0.1, 1.85], 0.22, 0.12)
+    .ell([0, -0.1, 1.88], [0.12, 0.1, 0.08])
+    .both(s => m
+      .ell([s * 0.38, 0.36, 0.92], [0.24, 0.08, 0.06], [0, 0, s * 0.45])
+      .tube([[s * 0.13, 0.38, 0.98], [s * 0.24, 0.8, 0.95], [s * 0.32, 1.25, 0.82], [s * 0.38, 1.6, 0.7]], 0.065, 0.03, 8)
+      .tube([[s * 0.24, 0.8, 0.95], [s * 0.22, 1.05, 1.25]], 0.05, 0.025, 8)
+      .tube([[s * 0.32, 1.25, 0.82], [s * 0.52, 1.5, 0.9]], 0.045, 0.02, 8)) },
+
+  { id: 'unicornio', name: 'Unicórnio', group: 'Fantasia', preset: { nA: 3, nB: 10, plaque: 'oval' }, build: m => {
+    m.tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, 0.3, 0.6]], 0.62, 0.42, 16)
+      .ell([0, 0.45, 0.85], [0.31, 0.33, 0.38])
+      .seg([0, 0.38, 1.0], [0, -0.12, 1.75], 0.27, 0.2)
+      .ell([0, -0.16, 1.78], [0.23, 0.2, 0.18])
+      .tube([[0, 0.72, 0.95], [0, 1.6, 1.32]], 0.09, 0.004, 8)
+      .both(s => m.seg([s * 0.15, 0.68, 0.72], [s * 0.2, 1.05, 0.66], 0.09, 0.01, 8).ell([s * 0.27, 0.48, 1.0], [0.06, 0.07, 0.06]));
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6;
+      m.ell([0, 0.82 - 0.62 * t, 0.7 - 0.66 * t], [0.09, 0.22, 0.14], [-0.5, 0, 0], 10);   // crina
+    }
+    return m;
+  } },
+
+  { id: 'dragao-oriental', name: 'Dragão oriental', group: 'Fantasia', preset: { nA: 5, nB: 12, plaque: 'classic' }, build: m => {
+    m.tube([[0, -0.5, -0.02], [0, -0.5, 0.2], [0, -0.2, 0.42], [0, 0.05, 0.7]], 0.42, 0.36, 16)
+      .ell([0, 0.15, 1.0], [0.38, 0.32, 0.45])
+      .seg([0, 0.12, 1.2], [0, 0.05, 1.9], 0.28, 0.2)
+      .ell([0, 0.1, 1.95], [0.23, 0.15, 0.14])
+      .seg([0, -0.15, 1.1], [0, -0.27, 1.78], 0.2, 0.11)
+      .tube([[0, -0.32, 1.4], [0, -0.6, 1.42], [0, -0.82, 1.3]], 0.11, 0.03, 8)
+      .both(s => m
+        .ell([s * 0.22, 0.36, 1.25], [0.12, 0.08, 0.22])
+        .tube([[s * 0.18, 0.4, 0.9], [s * 0.3, 0.8, 0.6], [s * 0.36, 1.12, 0.25]], 0.08, 0.03, 8)
+        .tube([[s * 0.3, 0.8, 0.6], [s * 0.52, 1.0, 0.72]], 0.05, 0.02, 8)
+        .tube([[s * 0.2, 0.06, 1.86], [s * 0.6, 0, 1.82], [s * 0.9, -0.28, 1.55], [s * 1.02, -0.6, 1.15]], 0.065, 0.04, 8));
+    spikes(m, 5, 0.78, 0.12, 0.38, -0.05, 0.38, 0.1);
+    return m;
+  } },
+
+  { id: 'dragao-alado', name: 'Dragão alado', group: 'Fantasia', preset: { nA: 5, nB: 11, plaque: 'heater' }, build: m => {
+    m.tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, 0.05, 0.75]], 0.5, 0.4, 16)
+      .ell([0, 0.15, 1.0], [0.36, 0.3, 0.45])
+      .seg([0, 0.1, 1.2], [0, -0.02, 2.05], 0.26, 0.12)
+      .seg([0, -0.15, 1.05], [0, -0.24, 1.9], 0.22, 0.09)
+      .both(s => m
+        .tube([[s * 0.2, 0.35, 0.85], [s * 0.34, 0.62, 0.45], [s * 0.42, 0.72, 0.12]], 0.11, 0.01, 10)
+        .tube([[s * 0.3, 0.05, 0.82], [s * 0.62, 0.12, 0.5]], 0.08, 0.01, 8)
+        .tube([[s * 0.25, 0.3, 1.25], [s * 0.33, 0.48, 1.05]], 0.05, 0.01, 6)
+        .ell([s * 0.1, 0.06, 2.0], [0.05, 0.04, 0.04]));
+    spikes(m, 4, 0.72, 0.15, 0.36, 0.0, 0.3, 0.09);
+    return m;
+  } },
+
+  { id: 'tiranossauro', name: 'Tiranossauro rex', group: 'Pré-história', preset: { nA: 3, nB: 11, plaque: 'hex' }, build: m => m
+    .tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, 0, 0.6]], 0.62, 0.5, 16)
+    .ell([0, 0.15, 1.0], [0.44, 0.43, 0.62])
+    .seg([0, 0.12, 1.4], [0, 0.02, 2.25], 0.36, 0.25)
+    .seg([0, -0.24, 1.0], [0, -0.32, 2.1], 0.3, 0.19)
+    .both(s => {
+      m.ell([s * 0.3, 0.45, 1.28], [0.12, 0.1, 0.22]).ell([s * 0.12, 0.18, 2.22], [0.06, 0.05, 0.05]);
+      for (let z = 1.55; z <= 2.16; z += 0.12) m.seg([s * 0.24, -0.08, z], [s * 0.25, -0.26, z + 0.02], 0.05, 0.004, 6);   // dentes
+    }) },
+];
+
+// Miniaturas: cada exemplo renderizado uma vez, com sombreamento facetado (low-poly).
+let thumbRenderer = null;
+function exampleThumb(ex) {
+  if (ex.thumb) return ex.thumb;
+  if (!thumbRenderer) { thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); thumbRenderer.setSize(240, 180); }
+  const sc = new THREE.Scene();
+  sc.add(new THREE.HemisphereLight(0xfff1e2, 0x1b2027, 1.4));
+  const l = new THREE.DirectionalLight(0xffffff, 2.4); l.position.set(0.8, 1, 0.9); sc.add(l);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(ex.build(sculpt()).done(), 3));
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xc9a27a, roughness: 0.8, flatShading: true }));
+  sc.add(mesh);
+  const bb = g.boundingBox, ctr = bb.getCenter(new THREE.Vector3()), size = bb.getSize(new THREE.Vector3()).length();
+  const cam = new THREE.PerspectiveCamera(30, 4 / 3, 0.01, 100);
+  cam.position.copy(ctr).add(new THREE.Vector3(size * 0.78, size * 0.22, size * 0.92));
+  cam.lookAt(ctr);
+  thumbRenderer.render(sc, cam);
+  ex.thumb = thumbRenderer.domElement.toDataURL('image/png');
+  g.dispose();
+  return ex.thumb;
+}
+
+function renderGallery(container) {
+  container.innerHTML = '';
+  for (const group of ['Cerrado', 'Fantasia', 'Pré-história']) {
+    const h = document.createElement('h3');
+    h.className = 'gal-h';
+    h.textContent = group;
+    container.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'gal-grid';
+    for (const ex of EXAMPLES.filter(e => e.group === group)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ex-card';
+      b.innerHTML = `<img alt="" src="${exampleThumb(ex)}"><span>${ex.name}</span>`;
+      b.onclick = () => loadExample(ex);
+      grid.appendChild(b);
+    }
+    container.appendChild(grid);
+  }
+}
+
+function loadExample(ex) {
+  const p = ex.preset;
+  $('nA').value = p.nA; $('nB').value = p.nB;
+  $('mEgg').checked = true; syncMode();
+  $('plaque').value = p.plaque; syncTiles(); syncPlaque();
+  $('pSize').value = p.pSize || 170; $('pOff').value = 0; $('back').value = 0; updateOutputs();
+  $('gallery').close?.();
+  setModel(ex.build(sculpt()).done(), ex.id);
+}
+
+// ---------- Interface ----------
+function setStatus(msg, err) {
+  $('status').textContent = msg;
+  const chip = $('statusChip');
+  chip.classList.toggle('err', !!err);
+  chip.classList.toggle('idle', !state.pos && !err);
+  chip.title = msg;
+}
+
+function params() {
+  const num = id => parseFloat($(id).value);
+  const t = Math.max(0.3, num('t') || 3);
+  const dest = curDest;
+  return {
+    dest, mode: dest === 'fdm' ? 'egg' : document.querySelector('input[name=mode]:checked').value,
+    plaque: $('plaque').value, pSize: Math.max(20, num('pSize') || 120), pOff: num('pOff') || 0, pBorder: $('pBorder').checked,
+    tp: dest === 'fdm' ? Math.max(0.5, num('tp') || 5) : t, bedZ: num('sz') || 0,
+    t, axA: +$('axA').value, nA: Math.max(1, Math.round(num('nA') || 1)),
+    axB: +$('axB').value, nB: Math.max(1, Math.round(num('nB') || 1)),
+    fit: num('fit') || 0, flip: $('flip').checked,
+    axS: +$('axS').value, guides: $('guides').checked,
+    back: Math.min(0.9, Math.max(0, (num('back') || 0) / 100)),
+    sheetW: Math.max(50, num('sw') || 600), sheetH: Math.max(50, num('sh') || 400),
+    gap: Math.max(0, num('gap') || 0), margin: Math.max(0, num('margin') || 0),
+    labels: dest === 'laser' && $('labels').checked, labelSize: 12, mateSize: Math.min(3, Math.max(1.5, t)),
+  };
+}
+
+let regenTimer = 0;
+function regenerate() {
+  if (!state.pos) return;
+  clearTimeout(regenTimer);
+  regenTimer = setTimeout(() => {
+    $('busy').hidden = false;
+    $('statusChip').classList.add('busy');
+    setTimeout(() => {
+      const t0 = performance.now();
+      try {
+        const P = params();
+        const pieces = addPlaque(P.mode === 'egg' ? genEgg(P) : genStacked(P), P);
+        state.P = P; state.pieces = pieces; state.sheets = layout(pieces, P);
+        buildPieces3D();
+        renderSheets();
+        const over = state.sheets.filter(s => s.over).length, word = sheetWord().toLowerCase();
+        const noCustom = P.plaque === 'custom' && !state.customPlaque ? ' · escolha o arquivo da placa' : '';
+        const tooTall = P.dest === 'fdm' && P.bedZ > 0 && Math.max(P.t, P.tp) > P.bedZ ? ' · espessura maior que a altura da impressora' : '';
+        setStatus(`${pieces.length} peças em ${state.sheets.length} ${word}(s) de ${P.sheetW}×${P.sheetH} mm` +
+          (over ? ` · ${over} peça(s) maior(es) que a ${word}` : '') + noCustom + tooTall + ` · ${Math.round(performance.now() - t0)} ms`, over > 0 || !!tooTall);
+        for (const id of ['exSVG', 'exDXF', 'ex3MF', 'exSTL', 'exSTLa', 'exportBtn']) $(id).disabled = !pieces.length;
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message, true);
+      }
+      $('busy').hidden = true;
+      $('statusChip').classList.remove('busy');
+    }, 20);
+  }, 250);
+}
+
+const HINTS = {
+  egg: 'Duas famílias de fatias que se cruzam com encaixes até a metade. Monta sem cola, com aquele visual vazado das cabeças de troféu.',
+  stack: 'Fatias paralelas coladas uma sobre a outra, formando um bloco sólido em "curvas de nível". Usa mais material.',
+};
+function syncMode() {
+  const m = document.querySelector('input[name=mode]:checked').value;
+  $('eggOpts').hidden = m !== 'egg';
+  $('stackOpts').hidden = m !== 'stack';
+  $('modeHint').textContent = HINTS[m];
+}
+
+// Laser x impressora 3D: cada destino guarda os próprios valores de material e chapa/mesa.
+const DEST_FIELDS = ['size', 't', 'fit', 'sw', 'sh', 'gap', 'margin'];
+const destValues = {
+  laser: { size: 400, t: 3, fit: 0, sw: 600, sh: 400, gap: 3, margin: 5 },
+  fdm: { size: 200, t: 2.5, fit: 0.2, sw: 256, sh: 256, gap: 5, margin: 5 },
+};
+let curDest = 'laser';
+const sheetWord = () => curDest === 'fdm' ? 'Mesa' : 'Chapa';
+function syncDest() {
+  const d = document.querySelector('input[name=dest]:checked').value;
+  if (d !== curDest) {
+    for (const f of DEST_FIELDS) destValues[curDest][f] = $(f).value;
+    const sizeChanged = $('size').value !== String(destValues[d].size);
+    for (const f of DEST_FIELDS) $(f).value = destValues[d][f];
+    curDest = d;
+    if (sizeChanged && state.raw) { prepareModel(); frameCamera(); }
+  }
+  const fdm = d === 'fdm';
+  document.body.classList.toggle('fdm', fdm);
+  $('mStack').disabled = fdm;
+  if (fdm) $('mEgg').checked = true;
+  $('fdmModeHint').hidden = !fdm;
+  $('tLabel').textContent = fdm ? 'Espessura de cada peça' : 'Espessura da chapa';
+  $('sheetTitle').textContent = fdm ? 'Mesa da impressora' : 'Chapa';
+  $('swLabel').textContent = fdm ? 'Largura (X)' : 'Largura';
+  $('shLabel').textContent = fdm ? 'Profundidade (Y)' : 'Altura';
+  $('tabSheets').textContent = fdm ? 'Mesas' : 'Chapas';
+  $('labelsRow').hidden = fdm;
+  $('pBorderRow').hidden = fdm;
+  syncMode();
+  updateOutputs();
+  updatePipTitle();
+}
+
+// Valores mostrados ao lado dos sliders.
+function updateOutputs() {
+  document.querySelectorAll('output[data-out]').forEach(o => {
+    const v = parseFloat($(o.dataset.out).value) || 0;
+    o.textContent = v.toFixed(+o.dataset.dec).replace('.', ',') + o.dataset.unit;
+  });
+}
+
+function syncPlaque() {
+  const v = $('plaque').value;
+  $('plaqueCustom').hidden = v !== 'custom';
+  $('plaqueOpts').hidden = v === 'none';
+}
+syncDest();
+syncPlaque();
+
+document.querySelectorAll('aside input, aside select').forEach(el => {
+  if (['file', 'size', 'simp', 'plaqueFile'].includes(el.id)) return;
+  el.addEventListener('input', () => {
+    if (el.name === 'mode' || el.name === 'dest') state.animateNext = true;   // trocar de estilo remonta as peças com animação
+    if (el.name === 'mode') syncMode();
+    if (el.name === 'dest') syncDest();
+    if (el.id === 'plaque') syncPlaque();
+    regenerate();
+  });
+});
+$('simp').addEventListener('change', async () => { if (state.rawFull) { await applySimplify(); regenerate(); } });
+$('plaqueFile').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    if (/\.svg$/i.test(file.name)) state.customPlaque = plaqueFromSVG(await file.text());
+    else {
+      const g = loader.parse(await file.arrayBuffer());
+      const pos = g.index ? g.toNonIndexed().attributes.position.array : g.attributes.position.array;
+      state.customPlaque = plaqueFromSTL(pos);
+    }
+    $('plaqueText').textContent = file.name;
+    regenerate();
+  } catch (err) {
+    console.error(err);
+    setStatus('Não consegui ler o arquivo da placa: ' + err.message, true);
+  }
+};
+
+// Impressoras conhecidas preenchem a mesa; editar a mesa à mão vira "Personalizada".
+$('printer').addEventListener('input', () => {
+  const v = $('printer').value;
+  if (v === 'custom') return;
+  const [x, y, z] = v.split(',');
+  $('sw').value = x; $('sh').value = y; $('sz').value = z;
+});
+for (const id of ['sw', 'sh', 'sz']) $(id).addEventListener('input', () => { if (curDest === 'fdm') $('printer').value = 'custom'; });
+$('size').addEventListener('change', () => { if (state.raw) { prepareModel(); frameCamera(); regenerate(); } });
+
+document.querySelectorAll('[data-rot]').forEach(btn => btn.onclick = () => {
+  if (!state.raw) return;
+  const r = new THREE.Matrix4();
+  ({ x: () => r.makeRotationX(Math.PI / 2), y: () => r.makeRotationY(Math.PI / 2), z: () => r.makeRotationZ(Math.PI / 2) })[btn.dataset.rot]();
+  state.rot.premultiply(r);
+  prepareModel(); frameCamera(); regenerate();
+});
+$('rotReset').onclick = () => { if (!state.raw) return; state.rot.identity(); prepareModel(); frameCamera(); regenerate(); };
+
+$('file').onchange = e => loadFile(e.target.files[0]);
+// Galeria: na tela inicial já aparece; na barra lateral abre numa janela.
+requestAnimationFrame(() => {
+  const lead = $('galleryInline').querySelector('.gal-lead');
+  renderGallery($('galleryInline'));
+  $('galleryInline').prepend(lead);
+});
+const drop = $('drop');
+window.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+window.addEventListener('dragleave', e => { if (!e.relatedTarget) drop.classList.remove('over'); });
+window.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); loadFile(e.dataTransfer.files[0]); });
+
+$('demo2').onclick = () => {
+  if (!$('galleryDialog').children.length) renderGallery($('galleryDialog'));
+  $('gallery').showModal();
+};
+$('gallery').addEventListener('click', e => {   // clicar fora da janela fecha
+  const r = $('gallery').getBoundingClientRect();
+  if (e.target === $('gallery') && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) $('gallery').close();
+});
+
+// ---------- Ladrilhos (low-poly e placa) controlam os <select> escondidos ----------
+const SIMP_LABEL = { 0: 'Original', 20000: 'Leve · 20.000 tri', 5000: 'Média · 5.000 tri', 1500: 'Forte · 1.500 tri', 500: 'Extrema · 500 tri' };
+function syncTiles() {
+  document.querySelectorAll('[data-simp]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.simp === $('simp').value)));
+  document.querySelectorAll('[data-plaque]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.plaque === $('plaque').value)));
+  $('simpOut').textContent = SIMP_LABEL[$('simp').value];
+}
+document.querySelectorAll('[data-simp]').forEach(b => b.onclick = () => {
+  if ($('simp').value === b.dataset.simp) return;
+  $('simp').value = b.dataset.simp;
+  syncTiles();
+  $('simp').dispatchEvent(new Event('change'));
+});
+document.querySelectorAll('[data-plaque]').forEach(b => b.onclick = () => {
+  $('plaque').value = b.dataset.plaque;
+  syncTiles();
+  $('plaque').dispatchEvent(new Event('input', { bubbles: true }));
+  if (b.dataset.plaque === 'custom' && !state.customPlaque) $('plaqueFile').click();
+});
+syncTiles();
+
+// Botões − e + das famílias.
+document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => {
+  const inp = $(b.dataset.step);
+  inp.value = Math.min(+inp.max, Math.max(+inp.min, (parseInt(inp.value) || 0) + +b.dataset.d));
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+});
+document.querySelectorAll('aside input[type=range]').forEach(r => r.addEventListener('input', updateOutputs));
+updateOutputs();
+
+// Destaque da área de arquivo ao arrastar.
+$('plaqueDrop').addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); $('plaqueDrop').classList.add('over'); });
+$('plaqueDrop').addEventListener('dragleave', () => $('plaqueDrop').classList.remove('over'));
+$('plaqueDrop').addEventListener('drop', e => {
+  e.preventDefault(); e.stopPropagation(); $('plaqueDrop').classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (!f) return;
+  const dt = new DataTransfer(); dt.items.add(f); $('plaqueFile').files = dt.files;
+  $('plaqueFile').dispatchEvent(new Event('change'));
+});
+
+// ---------- Exportar (popover) ----------
+const pop = $('exportPop'), exportBtn = $('exportBtn');
+function setExportOpen(open) {
+  pop.hidden = !open;
+  exportBtn.setAttribute('aria-expanded', String(open));
+  if (open) pop.querySelector('.fmt:not(:disabled):not([hidden])')?.focus();
+}
+exportBtn.onclick = e => { e.stopPropagation(); setExportOpen(pop.hidden); };
+pop.addEventListener('click', e => { if (e.target.closest('.fmt')) setExportOpen(false); });
+document.addEventListener('click', e => { if (!pop.hidden && !e.target.closest('.export-wrap')) setExportOpen(false); });
+pop.addEventListener('keydown', e => { if (e.key === 'Escape') { setExportOpen(false); exportBtn.focus(); } });
+
+// ---------- Vista principal + janela de prévia (PiP) ----------
+// As duas vistas são os mesmos elementos, movidos entre o palco e a janelinha do canto.
+var viewState = { main: '3d', pip: true };
+function layoutViews() {
+  const v3 = $('view3d'), sh = $('sheets');
+  const main = viewState.main === '3d' ? v3 : sh, other = main === v3 ? sh : v3;
+  $('mainSlot').appendChild(main);
+  (viewState.pip ? $('pipSlot') : $('parking')).appendChild(other);
+  for (const el of [main, other]) { el.classList.remove('view-in'); void el.offsetWidth; el.classList.add('view-in'); }
+  $('pip').hidden = !viewState.pip;
+  $('pipShow').hidden = viewState.pip;
+  $('viewTabs').classList.toggle('at-1', viewState.main === 'sheets');
+  document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === viewState.main)));
+  updatePipTitle();
+  resize();
+}
+function updatePipTitle() {
+  if (!viewState) return;
+  const fdm = curDest === 'fdm';
+  $('pipTitle').textContent = viewState.main === '3d'
+    ? `${sheetWord()} 1${state.sheets.length > 1 ? ` de ${state.sheets.length}` : ''} · ${fdm ? 'imprimindo' : 'cortando'}`
+    : 'Montagem 3D';
+}
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { viewState.main = b.dataset.view; layoutViews(); });
+$('pipSwap').onclick = () => { viewState.main = viewState.main === '3d' ? 'sheets' : '3d'; layoutViews(); };
+$('pipSlot').onclick = () => $('pipSwap').click();
+$('pipMin').onclick = () => { viewState.pip = false; layoutViews(); $('pipShow').focus(); };
+$('pipShow').onclick = () => { viewState.pip = true; layoutViews(); };
+layoutViews();
+
+// Ferramentas do palco.
+$('recenter').onclick = () => { if (state.bbox) frameCamera(); };
+$('fullscreen').onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else $('stage').requestFullscreen?.();
+};
+$('showModel').addEventListener('change', () => $('showModel').parentElement.setAttribute('aria-pressed', String($('showModel').checked)));
+
+window.__laserLayer = { state, sheetSVG, sheetDXF, sheet3MF, stlBinary, pieceGeometry, setModel, demoGeometry, EXAMPLES, loadExample };
+</script>
+</body>
+</html>
