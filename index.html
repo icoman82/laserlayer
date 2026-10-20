@@ -575,9 +575,12 @@
         <div class="row"><label class="lbl" for="pSize">Tamanho</label><output class="val" data-out="pSize" data-unit=" %" data-dec="0">120 %</output></div>
         <input class="range" type="range" id="pSize" value="120" min="50" max="250" step="5">
       </div>
-      <div class="row">
-        <label class="lbl" for="pOff">Mover para cima/baixo</label>
-        <span class="unit"><input class="inp" type="number" id="pOff" value="0" step="5">mm</span>
+      <div class="stack" style="gap:6px">
+        <span class="lbl" id="pMoveLbl">Mover a placa (mm)</span>
+        <div class="grid2" role="group" aria-labelledby="pMoveLbl">
+          <label class="cell">← esquerda · direita →<input class="inp" type="number" id="pOffX" value="0" step="5"></label>
+          <label class="cell">↓ baixo · cima ↑<input class="inp" type="number" id="pOff" value="0" step="5"></label>
+        </div>
       </div>
       <div class="fam">
         <span class="who">Camadas<small>degraus, como um chanfro</small></span>
@@ -1121,6 +1124,7 @@ function addPlaque(pieces, P) {
     h = Math.max(state.bbox.max[1] - state.bbox.min[1], state.bbox.max[0] - state.bbox.min[0]) * 0.6;
   }
   h *= P.pSize / 100;
+  cx += P.pOffX;
   cy += P.pOff;
   const outline = union(rings.map(r => r.map(([x, y]) => ({ X: R(cx + x * h), Y: R(cy + y * h) }))));
   // Placa em degraus: camada 0 encosta na parede (a maior); cada camada para a frente recua `pStep` mm.
@@ -2293,7 +2297,7 @@ function loadExample(ex) {
   $('nA').value = p.nA; $('nB').value = p.nB;
   $('mEgg').checked = true; syncMode();
   $('plaque').value = p.plaque; syncTiles(); syncPlaque();
-  $('pSize').value = p.pSize || 170; $('pOff').value = 0; $('back').value = 0; updateOutputs();
+  $('pSize').value = p.pSize || 170; $('pOff').value = 0; $('pOffX').value = 0; $('back').value = 0; updateOutputs();
   $('gallery').close?.();
   setModel(ex.build(sculpt()).done(), ex.id);
 }
@@ -2313,7 +2317,7 @@ function params() {
   const dest = curDest;
   return {
     dest, mode: dest === 'fdm' ? 'egg' : document.querySelector('input[name=mode]:checked').value,
-    plaque: $('plaque').value, pSize: Math.max(20, num('pSize') || 120), pOff: num('pOff') || 0, pDeco: $('pDeco').value, pLayers: Math.max(1, Math.min(5, Math.round(num('pLayers') || 1))), pStep: Math.max(0, num('pStep') || 0), baseInlay: $('baseInlay').checked,
+    plaque: $('plaque').value, pSize: Math.max(20, num('pSize') || 120), pOff: num('pOff') || 0, pOffX: num('pOffX') || 0, pDeco: $('pDeco').value, pLayers: Math.max(1, Math.min(5, Math.round(num('pLayers') || 1))), pStep: Math.max(0, num('pStep') || 0), baseInlay: $('baseInlay').checked,
     tp: dest === 'fdm' ? Math.max(0.5, num('tp') || 5) : t, bedZ: num('sz') || 0, solid: $('solid').checked, dropLoose: $('dropLoose').checked, bridges: $('bridges').checked,
     t, axA: +$('axA').value, nA: Math.max(1, Math.round(num('nA') || 1)),
     axB: +$('axB').value, nB: Math.max(1, Math.round(num('nB') || 1)),
