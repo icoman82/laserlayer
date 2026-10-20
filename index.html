@@ -264,6 +264,19 @@
   .empty-art .layer { animation: float 3.6s ease-in-out infinite; }
   .empty-art .layer:nth-child(2) { animation-delay: .25s; } .empty-art .layer:nth-child(3) { animation-delay: .5s; }
 
+  /* Aviso de partes soltas */
+  .notice {
+    position: absolute; top: 72px; left: 50%; transform: translateX(-50%); z-index: 7; width: max-content; max-width: calc(100% - 32px);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 8px 8px 14px; border-radius: 14px;
+    border: 1px solid rgba(255, 163, 92, .45); font-size: 13px; color: var(--tx); box-shadow: 0 20px 50px -20px #000;
+    animation: noteIn .45s cubic-bezier(.2, 1.3, .4, 1) both;
+  }
+  .notice span { flex: 1 1 220px; }
+  .notice.ok { border-color: rgba(76, 195, 138, .5); }
+  .stage.has-note .slot-main > #sheets { top: 124px; }
+  @keyframes noteIn { from { opacity: 0; transform: translate(-50%, -8px) scale(.96); } }
+  body.showcase .notice { display: none !important; }
+
   .empty-card { max-width: 760px; }
   .empty { overflow-y: auto; }
 
@@ -341,6 +354,8 @@
     .legend { display: none; }
     .topbar { gap: 8px; padding: 8px 12px; }
     .slot-main > #sheets { inset: 128px 12px 12px; }   /* abas e ferramentas quebram em duas linhas */
+    .notice { top: 128px; }
+    .stage.has-note .slot-main > #sheets { top: 196px; }
     .export-wrap { order: 1; margin-left: auto; }
     .status { order: 2; flex: 1 1 100%; }
     #fileChip { display: none; }
@@ -510,6 +525,8 @@
       </div>
       <label class="check"><input type="checkbox" id="guides" checked>Gravar guia de alinhamento (contorno da próxima camada)</label>
     </div>
+    <label class="check"><input type="checkbox" id="bridges" checked>Prender partes soltas com pontes (tiras finas até o corpo da peça)</label>
+    <label class="check"><input type="checkbox" id="dropLoose" checked>Remover o que continuar solto</label>
   </section>
 
   <section class="card" aria-labelledby="h3">
@@ -625,6 +642,13 @@
       <button class="btn icon-btn ghost" type="button" id="recenter" aria-label="Centralizar câmera"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><path d="M12 2 V6 M12 18 V22 M2 12 H6 M18 12 H22"/></svg></button>
       <button class="btn icon-btn ghost" type="button" id="fullscreen" aria-label="Tela cheia"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15"/></svg></button>
     </div>
+  </div>
+
+  <div class="notice glass" id="looseNote" role="status" hidden>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFA35C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 L22 20 H2 Z"/><path d="M12 10 V14 M12 17 V17.5"/></svg>
+    <span id="looseText"></span>
+    <button class="btn btn-sm btn-primary" id="autoFix" type="button">Corrigir automaticamente</button>
+    <button class="btn btn-sm" id="looseToggle" type="button"></button>
   </div>
 
   <div class="slot-main" id="mainSlot">
@@ -1113,6 +1137,10 @@ function addPlaque(pieces, P) {
         if (!ok) continue;
         slots.push(slot);
         tabs.push(rectFromWorld(p.fr, p.axis, p.c, { 2: [zb - P.tp, zProbe + 0.6], [r]: [m - len / 2, m + len / 2] }));
+        // Aba = ligação com a placa (o lado da placa é preenchido quando ela existir).
+        const w3 = [0, 0, 0]; w3[p.axis] = p.c; w3[r] = m; w3[2] = zb - P.tp / 2;
+        const wp = [...w3]; wp[r] = m + len / 2 + P.fit + 1;   // na placa: logo depois do fim da fenda (a fenda é furo)
+        P.joints.push({ a: p, pa: [dot(w3, p.fr.eu), dot(w3, p.fr.ev)], b: null, pb: [dot(wp, FR[2].eu), dot(wp, FR[2].ev)] });
       }
     }
     if (tabs.length) {
@@ -1128,7 +1156,18 @@ function addPlaque(pieces, P) {
     plaque.guides = inner.map(r => [...r, r[0]]);
   }
   const minA = Math.max(4, P.t * P.t);
-  if (finalize(plaque, P, minA)) pieces.push(plaque);
+  if (finalize(plaque, P, minA)) {
+    pieces.push(plaque);
+    for (const j of P.joints) if (j.b === null) j.b = plaque;
+    // Peças paralelas à parede que encostam na placa (camada de trás do empilhado) ficam coladas nela.
+    for (const p of pieces) {
+      if (p === plaque || p.axis !== 2 || p.c - P.t / 2 > zb + P.t * 0.6) continue;
+      p.polys.forEach((po, ia) => plaque.polys.forEach((pp, ib) => {
+        const inter = boolOp([po.outer, ...po.holes], [pp.outer, ...pp.holes], C.ClipType.ctIntersection);
+        if (areaMM(inter) > 1) P.joints.push({ a: p, ia, b: plaque, ib });
+      }));
+    }
+  }
   return pieces;
 }
 
@@ -1162,10 +1201,13 @@ function genEgg(P) {
       const bW = P.flip ? [m, y1 + ext] : [y0 - ext, m];
       pa.slots.push(rectFromWorld(pa.fr, a, pa.c, { [b]: [pb.c - half, pb.c + half], [w]: aW }));
       pb.slots.push(rectFromWorld(pb.fr, b, pb.c, { [a]: [pa.c - half, pa.c + half], [w]: bW }));
+      const at = (wv, piece) => { const p3 = [0, 0, 0]; p3[a] = pa.c; p3[b] = pb.c; p3[w] = wv; return [dot(p3, piece.fr.eu), dot(p3, piece.fr.ev)]; };
+      // Encaixe = ligação entre as duas peças. Ponto de cada lado, no material logo após o fim da fenda.
+      const eps = Math.min(1, (o1 - o0) / 4);
+      P.joints.push({ a: pa, pa: at(P.flip ? m + eps : m - eps, pa), b: pb, pb: at(P.flip ? m - eps : m + eps, pb) });
       // Número da peça vizinha logo abaixo do fim da fenda.
       const offA = mateOffset(pa.fr, pb.id), offB = mateOffset(pb.fr, pa.id);
       if ((o1 - o0) / 2 > Math.max(offA, offB) * 1.6) {
-        const at = (wv, piece) => { const p3 = [0, 0, 0]; p3[a] = pa.c; p3[b] = pb.c; p3[w] = wv; return [dot(p3, piece.fr.eu), dot(p3, piece.fr.ev)]; };
         const [ua, va] = at(P.flip ? m + offA : m - offA, pa);
         const [ub, vb] = at(P.flip ? m - offB : m + offB, pb);
         pa.mates.push({ u: ua, v: va, text: pb.id });
@@ -1199,7 +1241,128 @@ function genStacked(P) {
       p.guides = clipOpen(layers[i + 1].paths, offsetPaths(L.paths, -0.6));
     if (finalize(p, P, minA)) out.push(p);
   }
+  // Camadas vizinhas coladas: cada ilha liga com as ilhas da camada seguinte que ela cobre.
+  for (let i = 0; i + 1 < out.length; i++) {
+    const A = out[i], B = out[i + 1];
+    if (B.c - A.c > P.t * 1.5) continue;   // camada vazia no meio: não encostam
+    A.polys.forEach((pa, ia) => B.polys.forEach((pb, ib) => {
+      const inter = boolOp([pa.outer, ...pa.holes], [pb.outer, ...pb.holes], C.ClipType.ctIntersection);
+      if (areaMM(inter) > 1) P.joints.push({ a: A, ia, b: B, ib });
+    }));
+  }
   return out;
+}
+
+// ---------- Partes soltas ----------
+// Mapa de ligações: cada ilha de cada peça é um nó; encaixes, abas e camadas coladas são as ligações.
+// O corpo principal é o grupo com mais área (sem contar a placa, que sempre fica). O resto está solto.
+function connectParts(pieces, P) {
+  const parent = new Map(), key = (p, i) => p.id + '#' + i;
+  const find = k => { while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); } return k; };
+  pieces.forEach(p => p.polys.forEach((po, i) => { parent.set(key(p, i), key(p, i)); po.loose = false; }));
+  const islandAt = (p, pt) => p.polys.findIndex(po => insidePolys([po], pt[0], pt[1]));
+  for (const j of P.joints) {
+    if (!pieces.includes(j.a) || !pieces.includes(j.b)) continue;
+    const ia = j.ia ?? islandAt(j.a, j.pa), ib = j.ib ?? islandAt(j.b, j.pb);
+    if (ia < 0 || ib < 0) continue;
+    const x = find(key(j.a, ia)), y = find(key(j.b, ib));
+    if (x !== y) parent.set(x, y);
+  }
+  const area = new Map();
+  for (const p of pieces) if (p.fam !== 'P') p.polys.forEach((po, i) => {
+    const r = find(key(p, i));
+    area.set(r, (area.get(r) || 0) + Math.abs(C.Clipper.Area(po.outer)));
+  });
+  let root = null, best = -1;
+  for (const [r, a] of area) if (a > best) { best = a; root = r; }
+  // "Poeira": lasquinhas que uma fenda arranca de uma ponta. Saem sempre, sem aviso.
+  const dustA = Math.max(60, 9 * P.t * P.t) * S * S;
+  let loose = 0;
+  for (const p of pieces) if (p.fam !== 'P') p.polys.forEach((po, i) => {
+    if (find(key(p, i)) === root) return;
+    po.loose = true;
+    po.dust = Math.abs(C.Clipper.Area(po.outer)) < dustA;
+    if (!po.dust) loose++;
+  });
+  return loose;
+}
+
+// Pontes: liga cada ilha solta ao corpo da mesma peça com uma tira fina, como num estêncil.
+// Não usa ponte que cruze uma fenda (travaria a montagem) nem ponte comprida demais.
+function bridgeLoose(pieces, P) {
+  const half = Math.max(1.5, P.t * 0.75) * S;
+  let made = 0;
+  const sample = (ring, n) => ring.filter((_, i) => i % Math.max(1, Math.ceil(ring.length / n)) === 0);
+  for (const p of pieces) {
+    if (p.fam === 'P') continue;
+    const att = p.polys.filter(po => !po.loose), loose = p.polys.filter(po => po.loose && !po.dust);
+    if (!att.length || !loose.length) continue;
+    const maxLen = Math.max(p.bb.w, p.bb.h) * 0.6 * S;
+    const targets = att.flatMap(a => sample(a.outer, 300));
+    const box = path => path.reduce((b, q) => [Math.min(b[0], q.X), Math.min(b[1], q.Y), Math.max(b[2], q.X), Math.max(b[3], q.Y)], [Infinity, Infinity, -Infinity, -Infinity]);
+    const slots = (p.slots || []).map(s => ({ s, b: box(s) }));
+    const hits = rect => {
+      const rb = box(rect);
+      return slots.some(({ s, b }) => b[0] <= rb[2] && b[2] >= rb[0] && b[1] <= rb[3] && b[3] >= rb[1] &&
+        areaMM(boolOp([rect], [s], C.ClipType.ctIntersection)) > 0.01);
+    };
+    const bridgeRect = (q, r, d) => {
+      // Retângulo de q até r, um pouco mais comprido para entrar nas duas partes.
+      const ux = (r.X - q.X) / (d || 1), uy = (r.Y - q.Y) / (d || 1);
+      const e = 1.5 * S, nx = -uy * half, ny = ux * half;
+      const a = { X: q.X - ux * e, Y: q.Y - uy * e }, b = { X: r.X + ux * e, Y: r.Y + uy * e };
+      return [{ X: a.X + nx, Y: a.Y + ny }, { X: b.X + nx, Y: b.Y + ny }, { X: b.X - nx, Y: b.Y - ny }, { X: a.X - nx, Y: a.Y - ny }].map(v => ({ X: Math.round(v.X), Y: Math.round(v.Y) }));
+    };
+    const bridges = [];
+    for (const lo of loose) {
+      // Para cada ponto da ilha, o ponto mais perto do corpo; tenta do caminho mais curto para o mais longo
+      // até achar um que não cruze nenhuma fenda.
+      const cands = sample(lo.outer, 150).map(q => {
+        let best = null;
+        for (const r of targets) { const d = Math.hypot(q.X - r.X, q.Y - r.Y); if (!best || d < best.d) best = { d, q, r }; }
+        return best;
+      }).filter(c => c && c.d <= maxLen).sort((x, y) => x.d - y.d);
+      for (const c of cands.slice(0, 24)) {
+        const rect = bridgeRect(c.q, c.r, c.d);
+        if (hits(rect)) continue;
+        bridges.push(rect);
+        made++;
+        break;
+      }
+    }
+    if (!bridges.length) continue;
+    const labels = p.labels;
+    p.paths = union([...p.polys.flatMap(po => [po.outer, ...po.holes]), ...bridges]);
+    p.polys = toEx(p.paths).filter(po => Math.abs(C.Clipper.Area(po.outer)) / (S * S) >= 4);
+    refreshBB(p);
+    p.labels = labels;
+  }
+  return made;
+}
+
+// Gera tudo e resolve as partes soltas: pontes primeiro, depois conta o que sobrou.
+function evaluate(P) {
+  let pieces = buildAll(P);
+  let loose = connectParts(pieces, P), bridged = 0;
+  if (loose && P.bridges) {
+    bridged = bridgeLoose(pieces, P);
+    if (bridged) loose = connectParts(pieces, P);
+  }
+  pieces = removeLoose(pieces, !P.dropLoose);
+  return { pieces, loose, bridged };
+}
+
+// Tira as partes soltas (ou só a "poeira", quando a pessoa quer ver as soltas em vermelho).
+function removeLoose(pieces, onlyDust = false) {
+  for (const p of pieces) {
+    const gone = po => po.loose && (po.dust || !onlyDust);
+    if (!p.polys.some(gone)) continue;
+    p.polys = p.polys.filter(po => !gone(po));
+    if (!p.polys.length) continue;
+    refreshBB(p);
+    p.labels = p.labels.filter(lb => insidePolys(p.polys, lb.u, lb.v));
+  }
+  return pieces.filter(p => p.polys.length);
 }
 
 function refreshBB(p) {
@@ -1213,19 +1376,6 @@ function refreshBB(p) {
 function finalize(p, P, minA) {
   p.polys = toEx(p.paths).filter(po => Math.abs(C.Clipper.Area(po.outer)) / (S * S) >= minA);
   if (!p.polys.length) return false;
-  // Egg crate: uma ilha que nenhuma fenda atravessa não se prende a nada (ponta de chifre, bigode solto).
-  // Fica sempre o corpo principal da peça; as outras ilhas só ficam se tiverem pelo menos um encaixe.
-  if (p.slots && p.polys.length > 1) {
-    const box = path => path.reduce((b, q) => [Math.min(b[0], q.X), Math.min(b[1], q.Y), Math.max(b[2], q.X), Math.max(b[3], q.Y)], [Infinity, Infinity, -Infinity, -Infinity]);
-    const slotBoxes = p.slots.map(box), M = S;   // 1 mm de folga
-    const largest = p.polys.reduce((a, b) => Math.abs(C.Clipper.Area(b.outer)) > Math.abs(C.Clipper.Area(a.outer)) ? b : a);
-    p.polys = p.polys.filter(po => {
-      if (po === largest) return true;
-      const b = box(po.outer);
-      return slotBoxes.some(s => s[0] <= b[2] + M && s[2] >= b[0] - M && s[1] <= b[3] + M && s[3] >= b[1] - M);
-    });
-    p.paths = p.polys.flatMap(po => [po.outer, ...po.holes]);
-  }
   refreshBB(p);
   p.labels = [];
   if (P.labels) {
@@ -1308,7 +1458,7 @@ function sheetSVG(s, preview) {
   const delay = () => preview ? ` class="cut" pathLength="1" style="animation-delay:${fmt(Math.min(n++ * 0.06, 2.4))}s"` : '';
   for (const it of s.items) {
     const T = placement(it);
-    if (preview) for (const po of it.p.polys) cut += `<path${delay()} d="${[po.outer, ...po.holes].map(r => ringD(r, T, true)).join('')}"/>`;
+    if (preview) for (const po of it.p.polys) cut += `<path${delay()}${po.loose ? ' stroke="#FF7A7A" fill="rgba(255,122,122,0.16)"' : ''} d="${[po.outer, ...po.holes].map(r => ringD(r, T, true)).join('')}"/>`;
     else for (const po of it.p.polys) for (const ring of [po.outer, ...po.holes]) cut += `<path d="${ringD(ring, T, true)}"/>`;
     for (const gl of it.p.guides || []) eng += `<path${preview ? ' class="eng"' : ''} d="${ringD(gl, T, false)}"/>`;
     for (const lb of it.p.labels) {
@@ -1475,6 +1625,7 @@ scene.add(modelGroup, pieceGroup);
 const matA = new THREE.MeshStandardMaterial({ color: 0xc9a27a, roughness: 0.85 });
 const matB = new THREE.MeshStandardMaterial({ color: 0xd8b58c, roughness: 0.85 });
 const matP = new THREE.MeshStandardMaterial({ color: 0x7a563c, roughness: 0.9 });
+const matLoose = new THREE.MeshStandardMaterial({ color: 0xff7a7a, emissive: 0x5a1010, roughness: 0.7 });
 const edgeMat = new THREE.LineBasicMaterial({ color: 0x6b4b2e });
 const ghostMat = new THREE.MeshStandardMaterial({ color: 0xffa35c, transparent: true, opacity: 0.22, depthWrite: false });
 // Plano de corte que varre o modelo logo depois de carregar.
@@ -1648,18 +1799,25 @@ function buildPieces3D() {
   const seq = [...state.pieces].sort((a, b) => order[a.fam] - order[b.fam]);
   const step = Math.min(70, 1400 / Math.max(1, seq.length));
   seq.forEach((p, i) => {
-    const geo = pieceGeometry(p, t), m = pieceMatrix(p, t);
-    // ExtrudeGeometry tem dois grupos: faces (0) e laterais (1). Na vitrine a lateral é a borda queimada.
-    const face = showcase.on ? (p.fam === 'P' ? showFaceP : showFace) : (p.fam === 'P' ? matP : p.fam === 'B' ? matB : matA);
-    const mesh = new THREE.Mesh(geo, showcase.on ? [face, burnt] : face);
-    mesh.castShadow = mesh.receiveShadow = showcase.on;
-    mesh.applyMatrix4(m);
-    const objs = [mesh];
-    if (!showcase.on) {
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat);
-      edges.applyMatrix4(m);
-      objs.push(edges);
-    }
+    const m = pieceMatrix(p, t), objs = [];
+    // Partes soltas mantidas (quando "Remover partes soltas" está desligado) aparecem em vermelho.
+    const groups = [p.polys.filter(po => !po.loose), p.polys.filter(po => po.loose)];
+    groups.forEach((polys, loose) => {
+      if (!polys.length) return;
+      const geo = pieceGeometry({ ...p, polys }, t);
+      // ExtrudeGeometry tem dois grupos: faces (0) e laterais (1). Na vitrine a lateral é a borda queimada.
+      const face = loose ? matLoose : showcase.on ? (p.fam === 'P' ? showFaceP : showFace) : (p.fam === 'P' ? matP : p.fam === 'B' ? matB : matA);
+      const mesh = new THREE.Mesh(geo, showcase.on && !loose ? [face, burnt] : face);
+      mesh.castShadow = mesh.receiveShadow = showcase.on;
+      mesh.applyMatrix4(m);
+      objs.push(mesh);
+      if (!showcase.on) {
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), edgeMat);
+        edges.applyMatrix4(m);
+        objs.push(edges);
+      }
+    });
+    if (!objs.length) return;
     pieceGroup.add(...objs);
     if (animate) {
       // Cada peça chega de frente e de cima até o lugar dela.
@@ -1943,7 +2101,7 @@ const EXAMPLES = [
     return m;
   } },
 
-  { id: 'dragao-oriental', name: 'Dragão oriental', group: 'Fantasia', preset: { nA: 5, nB: 12, plaque: 'classic' }, build: m => {
+  { id: 'dragao-oriental', name: 'Dragão oriental', group: 'Fantasia', preset: { nA: 5, nB: 14, plaque: 'classic' }, build: m => {
     m.tube([[0, -0.5, -0.02], [0, -0.5, 0.2], [0, -0.2, 0.42], [0, 0.05, 0.7]], 0.42, 0.36, 16)
       .ell([0, 0.15, 1.0], [0.38, 0.32, 0.45])
       .seg([0, 0.12, 1.2], [0, 0.05, 1.9], 0.28, 0.2)
@@ -1954,12 +2112,13 @@ const EXAMPLES = [
         .ell([s * 0.22, 0.36, 1.25], [0.12, 0.08, 0.22])
         .tube([[s * 0.18, 0.4, 0.9], [s * 0.3, 0.8, 0.6], [s * 0.36, 1.12, 0.25]], 0.08, 0.03, 8)
         .tube([[s * 0.3, 0.8, 0.6], [s * 0.52, 1.0, 0.72]], 0.05, 0.02, 8)
-        .tube([[s * 0.2, 0.06, 1.86], [s * 0.6, 0, 1.82], [s * 0.9, -0.28, 1.55], [s * 1.02, -0.6, 1.15]], 0.065, 0.04, 8));
+        // Bigode caído junto da mandíbula (encosta no queixo, então fica preso nas costelas).
+        .tube([[s * 0.2, 0.06, 1.86], [s * 0.36, -0.06, 1.74], [s * 0.42, -0.3, 1.5], [s * 0.36, -0.52, 1.3]], 0.085, 0.06, 8));
     spikes(m, 5, 0.78, 0.12, 0.38, -0.05, 0.38, 0.1);
     return m;
   } },
 
-  { id: 'dragao-alado', name: 'Dragão alado', group: 'Fantasia', preset: { nA: 5, nB: 11, plaque: 'heater' }, build: m => {
+  { id: 'dragao-alado', name: 'Dragão alado', group: 'Fantasia', preset: { nA: 7, nB: 17, plaque: 'heater' }, build: m => {
     m.tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, 0.05, 0.75]], 0.5, 0.4, 16)
       .ell([0, 0.15, 1.0], [0.36, 0.3, 0.45])
       .seg([0, 0.1, 1.2], [0, -0.02, 2.05], 0.26, 0.12)
@@ -2055,7 +2214,7 @@ function params() {
   return {
     dest, mode: dest === 'fdm' ? 'egg' : document.querySelector('input[name=mode]:checked').value,
     plaque: $('plaque').value, pSize: Math.max(20, num('pSize') || 120), pOff: num('pOff') || 0, pBorder: $('pBorder').checked,
-    tp: dest === 'fdm' ? Math.max(0.5, num('tp') || 5) : t, bedZ: num('sz') || 0, solid: $('solid').checked,
+    tp: dest === 'fdm' ? Math.max(0.5, num('tp') || 5) : t, bedZ: num('sz') || 0, solid: $('solid').checked, dropLoose: $('dropLoose').checked, bridges: $('bridges').checked,
     t, axA: +$('axA').value, nA: Math.max(1, Math.round(num('nA') || 1)),
     axB: +$('axB').value, nB: Math.max(1, Math.round(num('nB') || 1)),
     fit: num('fit') || 0, flip: $('flip').checked,
@@ -2066,6 +2225,66 @@ function params() {
     labels: dest === 'laser' && $('labels').checked, labelSize: 12, mateSize: Math.min(3, Math.max(1.5, t)),
   };
 }
+
+function buildAll(P) {
+  P.joints = [];
+  return addPlaque(P.mode === 'egg' ? genEgg(P) : genStacked(P), P);
+}
+
+let fixMessage = '';
+function showLooseNote(loose, P) {
+  const note = $('looseNote');
+  const msg = fixMessage;
+  fixMessage = '';
+  if (!loose && !msg) { note.hidden = true; $('stage').classList.remove('has-note'); return; }
+  note.hidden = false;
+  $('stage').classList.add('has-note');
+  note.classList.toggle('ok', !loose);
+  const s = loose === 1 ? '' : 's';
+  $('looseText').textContent = !loose ? msg
+    : (msg ? msg + ' ' : '') + (P.dropLoose
+      ? `${loose} parte${s} solta${s} removida${s}: não se prendia${loose === 1 ? '' : 'm'} a nenhuma outra peça.`
+      : `${loose} parte${s} solta${s}, em vermelho: não se prende${loose === 1 ? '' : 'm'} a nenhuma outra peça.`);
+  $('autoFix').hidden = !loose || P.mode !== 'egg';
+  $('looseToggle').hidden = !loose;
+  $('looseToggle').textContent = P.dropLoose ? 'Mostrar em vermelho' : 'Remover';
+  if (!loose) setTimeout(() => { if (note.classList.contains('ok')) { note.hidden = true; $('stage').classList.remove('has-note'); } }, 6000);
+}
+
+$('looseToggle').onclick = () => {
+  $('dropLoose').checked = !$('dropLoose').checked;
+  regenerate();
+};
+
+// Corrigir automaticamente: testa combinações com mais espinhas e costelas e fica com a que deixa
+// menos partes soltas, usando o menor número de peças.
+$('autoFix').onclick = async () => {
+  const base = params();
+  if (base.mode !== 'egg' || !state.pos) return;
+  $('autoFix').disabled = true;
+  const tries = [];
+  for (const dA of [0, 2, 4]) for (const dB of [0, 2, 4, 6]) tries.push([Math.min(60, base.nA + dA), Math.min(80, base.nB + dB)]);
+  let best = null;
+  for (const [k, [nA, nB]] of tries.entries()) {
+    setStatus(`Procurando a melhor combinação… ${k + 1}/${tries.length}`);
+    await new Promise(r => setTimeout(r, 0));
+    const P = { ...base, nA, nB };
+    try {
+      const { pieces: pcs, loose } = evaluate(P);
+      const n = pcs.length;
+      if (!best || loose < best.loose || (loose === best.loose && n < best.n)) best = { nA, nB, loose, n };
+    } catch (e) { console.error(e); }
+  }
+  $('autoFix').disabled = false;
+  if (!best) return;
+  $('nA').value = best.nA; $('nB').value = best.nB;
+  const changed = best.nA !== base.nA || best.nB !== base.nB;
+  fixMessage = best.loose === 0
+    ? (changed ? `Pronto: com ${best.nA} espinhas e ${best.nB} costelas, tudo ficou conectado.` : 'Tudo já está conectado.')
+    : `Melhor combinação: ${best.nA} espinhas e ${best.nB} costelas.`;
+  state.animateNext = changed;
+  regenerate();
+};
 
 let regenTimer = 0;
 function regenerate() {
@@ -2078,7 +2297,8 @@ function regenerate() {
       const t0 = performance.now();
       try {
         const P = params();
-        const pieces = addPlaque(P.mode === 'egg' ? genEgg(P) : genStacked(P), P);
+        const { pieces, loose } = evaluate(P);
+        showLooseNote(loose, P);
         state.P = P; state.pieces = pieces; state.sheets = layout(pieces, P);
         buildPieces3D();
         pieceGroup.visible = true;                       // volta ao normal depois de arrastar um slider de giro
