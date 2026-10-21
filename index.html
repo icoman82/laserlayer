@@ -62,6 +62,20 @@
   .status.busy .dot { background: var(--acc); animation: pulseAcc .9s ease-out infinite; }
   .status.err .dot { background: var(--err); animation: none; }
 
+  /* ---------- Idioma ---------- */
+  .lang { display: inline-flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); }
+  .flag {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 9px; border: 0; border-radius: 9px;
+    background: none; color: var(--tx3); font: 600 12px 'Geist Mono', monospace; cursor: pointer;
+    transition: background .2s ease, color .2s ease, transform .25s var(--spring);
+  }
+  .flag:hover { color: var(--tx); transform: translateY(-1px); }
+  .flag[aria-pressed="true"] { background: var(--s3); color: var(--tx); box-shadow: inset 0 0 0 1px var(--ctl); }
+  .flag-img { display: inline-block; width: 22px; height: 16px; border-radius: 3px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); transition: transform .35s var(--spring); }
+  .flag-img svg { display: block; width: 100%; height: 100%; }
+  .flag[aria-pressed="true"] .flag-img { transform: scale(1.08); }
+  .flag:not([aria-pressed="true"]) .flag-img { filter: saturate(.55) brightness(.85); }
+
   /* ---------- Botões ---------- */
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px;
@@ -356,7 +370,9 @@
     .slot-main > #sheets { inset: 128px 12px 12px; }   /* abas e ferramentas quebram em duas linhas */
     .notice { top: 128px; }
     .stage.has-note .slot-main > #sheets { top: 196px; }
-    .export-wrap { order: 1; margin-left: auto; }
+    .lang { order: 1; margin-left: auto; }
+    .export-wrap { order: 1; }
+    .flag span:last-child { display: none; }
     .status { order: 2; flex: 1 1 100%; }
     #fileChip { display: none; }
   }
@@ -387,6 +403,16 @@
     <span class="mono" id="fileTris" style="font-size:12px"></span>
   </span>
   <span class="chip status idle" id="statusChip" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="status">Carregue um STL para começar.</span><span id="busy" class="sr-only" hidden> · calculando…</span></span>
+  <div class="lang" role="group" aria-label="Idioma">
+    <button type="button" class="flag" data-lang="pt" aria-pressed="true" title="Português do Brasil" aria-label="Português do Brasil">
+      <span class="flag-img"><svg viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" fill="#009C3B"/><polygon points="14,2.2 25.6,10 14,17.8 2.4,10" fill="#FFDF00"/><circle cx="14" cy="10" r="4.6" fill="#002776"/><path d="M9.6 9.1 Q14 7.6 18.4 10.6" fill="none" stroke="#fff" stroke-width="0.9"/></svg></span>
+      <span>PT</span>
+    </button>
+    <button type="button" class="flag" data-lang="en" aria-pressed="false" title="English, com sotaque jamaicano e sem pedir licença à Coroa" aria-label="English, com sotaque jamaicano e sem pedir licença à Coroa">
+      <span class="flag-img"><svg viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" fill="#FED100"/><polygon points="2.6,0 25.4,0 14,8.1" fill="#009B3A"/><polygon points="2.6,20 25.4,20 14,11.9" fill="#009B3A"/><polygon points="0,1.8 0,18.2 11.4,10" fill="#000"/><polygon points="28,1.8 28,18.2 16.6,10" fill="#000"/></svg></span>
+      <span>EN</span>
+    </button>
+  </div>
   <div class="export-wrap">
     <button class="btn btn-primary" id="exportBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="exportPop" disabled>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 V15 M7 10 L12 15 L17 10 M5 20 H19"/></svg>
@@ -739,6 +765,125 @@ const R = x => Math.round(x * S);
 const $ = id => document.getElementById(id);
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
+// ---------- Idioma ----------
+// Português é o idioma de origem. Textos fixos da página são traduzidos pelo dicionário EN (abaixo);
+// mensagens geradas pelo código usam tr('português', 'English').
+let lang = (() => {
+  try { const saved = localStorage.getItem('laserlayer.lang'); if (saved === 'pt' || saved === 'en') return saved; } catch (e) {}
+  return /^pt/i.test(navigator.language || '') ? 'pt' : 'en';
+})();
+const tr = (pt, en) => lang === 'en' ? en : pt;
+const nfmt = n => Math.round(n).toLocaleString(lang === 'en' ? 'en-US' : 'pt-BR');
+const LAYER_CUT = () => tr('CORTE', 'CUT');
+const LAYER_ENG = () => tr('GRAVACAO', 'ENGRAVE');
+
+const EN = {
+  'Laserlayer · STL em peças para laser e impressora 3D': 'Laserlayer · STL to parts for laser cutting and 3D printing',
+  'Carregue um STL para começar.': 'Load an STL to get started.',
+  '· calculando…': '· calculating…',
+  'Exportar': 'Export',
+  'Exportar para o laser': 'Export for laser cutting',
+  'Exportar para impressão 3D': 'Export for 3D printing',
+  'Uma chapa por arquivo': 'One sheet per file',
+  'Camadas CORTE e GRAVACAO': 'CUT and ENGRAVE layers',
+  'Uma mesa por arquivo': 'One bed per file',
+  'Peças nomeadas · Bambu, Orca, Prusa, Cura': 'Named parts · Bambu, Orca, Prusa, Cura',
+  'Peças separadas': 'Separate parts',
+  'Um arquivo por peça, em .zip': 'One file per part, zipped',
+  'Modelo montado': 'Assembled model',
+  'Para conferir a montagem em 3D': 'To check the assembly in 3D',
+  'Mais de uma chapa vira um .zip. Laranja/vermelho = corte, azul = gravação.': 'Several sheets come as a .zip. Orange/red = cut, blue = engrave.',
+  'Mais de uma mesa vira um .zip.': 'Several beds come as a .zip.',
+  'Transforme um STL em peças planas para montar. Tudo roda no seu navegador: o arquivo não sai do seu computador.': 'Turn an STL into flat parts you can assemble. Everything runs in your browser: your file never leaves your computer.',
+  'Corte a laser': 'Laser cutting',
+  'Impressora 3D': '3D printer',
+  'Modelo': 'Model',
+  'Solte um STL ou clique': 'Drop an STL or click',
+  'Nenhum arquivo carregado': 'No file loaded',
+  'Exemplos prontos': 'Ready-made examples',
+  'Girar 90°': 'Rotate 90°',
+  'Ajuste fino': 'Fine-tune',
+  'duplo clique zera': 'double-click resets',
+  'Zerar rotação': 'Reset rotation',
+  'A parede fica atrás. Gire até o modelo "olhar" para você.': 'The wall is behind it. Rotate until the model "looks" at you.',
+  'Maior dimensão': 'Largest dimension',
+  'Leve': 'Light', 'Média': 'Medium', 'Forte': 'Strong', 'Extrema': 'Extreme',
+  'Deixa o modelo facetado: contornos retos, mais fáceis de cortar e lixar.': 'Makes the model faceted: straight outlines, easier to cut and sand.',
+  'Preencher por dentro (deixar sólido)': 'Fill the inside (make it solid)',
+  'Para STL oco (hollow): ignora a parede interna e corta cada peça inteira, sem o miolo vazado.': 'For hollow STLs: ignores the inner wall and cuts every part whole, without the empty core.',
+  'Estilo': 'Style',
+  'Fatias cruzadas com encaixes. Monta sem cola.': 'Interlocking slices. No glue needed.',
+  'Empilhado': 'Stacked',
+  'Camadas coladas em curvas de nível.': 'Glued layers, like contour lines.',
+  'Na impressora 3D só o egg crate está disponível. O empilhado teria peças demais e levaria dias para imprimir.': 'Only egg crate is available for 3D printing. Stacked would mean too many parts and days of printing.',
+  'Família A': 'Family A', 'espinha': 'spine', 'Família B': 'Family B', 'costelas': 'ribs',
+  'Folga do encaixe': 'Slot clearance',
+  'Somada à espessura na largura da fenda. Negativo = mais apertado.': 'Added to the thickness for the slot width. Negative = tighter.',
+  'Inverter direção dos encaixes': 'Flip slot direction',
+  'Eixo das camadas': 'Layer axis',
+  'Z · paralelo à parede': 'Z · parallel to the wall',
+  'Gravar guia de alinhamento (contorno da próxima camada)': 'Engrave an alignment guide (outline of the next layer)',
+  'Prender partes soltas com pontes (tiras finas até o corpo da peça)': 'Hold loose parts with bridges (thin strips to the body of the part)',
+  'Remover o que continuar solto': 'Remove whatever is still loose',
+  'Espessura da chapa': 'Sheet thickness',
+  'Cortar o fundo (parede)': 'Cut off the back (wall)',
+  'Remove a parte de trás para o modelo encostar reto na parede.': 'Trims the back so the model sits flat against the wall.',
+  'Placa de parede': 'Wall plaque',
+  'Sem placa': 'No plaque', 'Escudo clássico': 'Classic shield', 'Brasão': 'Heater shield', 'Retângulo arredondado': 'Rounded rectangle',
+  'Hexágono': 'Hexagon', 'Do meu arquivo': 'From my file', 'Escudo': 'Shield', 'Retângulo': 'Rectangle', 'Nenhuma': 'None', 'Meu SVG': 'My SVG',
+  'Escolha um SVG com o contorno': 'Choose an SVG with the outline',
+  'No SVG, formas desenhadas dentro de outras viram furos.': 'In the SVG, shapes drawn inside other shapes become holes.',
+  'Espessura da placa': 'Plaque thickness',
+  'Tamanho': 'Size',
+  'Mover a placa (mm)': 'Move the plaque (mm)',
+  '← esquerda · direita →': '← left · right →',
+  '↓ baixo · cima ↑': '↓ down · up ↑',
+  'Camadas': 'Layers',
+  'degraus, como um chanfro': 'steps, like a bevel',
+  'Recuo de cada camada': 'Inset per layer',
+  'Borda gravada': 'Engraved border',
+  'Sem borda': 'No border', 'Linha simples': 'Single line', 'Linha dupla': 'Double line', 'Tracejada': 'Dashed',
+  'Pontilhada': 'Dotted', 'Ondas': 'Waves', 'Zigue-zague': 'Zigzag',
+  'Base sólida encaixada na placa': 'Solid base inlaid in the plaque',
+  'A camada de trás do modelo vira uma peça inteira que entra num rebaixo da placa. As espinhas ganham abas que atravessam a base e a placa até a parede.': 'The back layer of the model becomes one whole part that sits in a recess in the plaque. The spines get tabs that go through the base and the plaque all the way to the wall.',
+  'Chapa': 'Sheet',
+  'Impressora': 'Printer',
+  'Personalizada': 'Custom',
+  'Largura': 'Width', 'Altura': 'Height', 'Altura (Z)': 'Height (Z)', 'Espaço': 'Spacing', 'Margem': 'Margin',
+  'Medidas em mm.': 'Measurements in mm.',
+  'Gravar números nas peças (e o número da vizinha em cada encaixe)': 'Engrave part numbers (and the neighbor’s number at each slot)',
+  'Montagem 3D': '3D assembly', 'Chapas': 'Sheets', 'Vitrine': 'Showcase', 'Salvar PNG': 'Save PNG',
+  'Corrigir automaticamente': 'Fix automatically',
+  'Corte': 'Cut', 'Gravação': 'Engrave',
+  'Arraste para girar · role para zoom': 'Drag to orbit · scroll to zoom',
+  'Prévia': 'Preview',
+  'As chapas aparecem aqui.': 'Sheets show up here.',
+  'Mostrar prévia': 'Show preview',
+  'Solte um STL aqui': 'Drop an STL here',
+  'Ele vira peças planas em egg crate ou empilhadas, prontas para o laser ou para a impressora 3D.': 'It becomes flat egg crate or stacked parts, ready for the laser cutter or the 3D printer.',
+  'Escolher arquivo': 'Choose file',
+  'Ou comece por um exemplo pronto': 'Or start from a ready-made example',
+  'Modelos low-poly feitos para virar troféu de parede. Cada um já vem com fatias e placa ajustadas.': 'Low-poly models made to become wall trophies. Each one comes with slices and plaque already tuned.',
+  // Atributos (aria-label e title)
+  'Formatos de exportação': 'Export formats', 'Configurações': 'Settings', 'Destino': 'Output',
+  'Girar 90 graus no eixo X': 'Rotate 90 degrees around X', 'Girar 90 graus no eixo Y': 'Rotate 90 degrees around Y', 'Girar 90 graus no eixo Z': 'Rotate 90 degrees around Z',
+  'Original, sem simplificar': 'Original, not simplified', 'Leve, 20 mil triângulos': 'Light, 20 thousand triangles',
+  'Média, 5 mil triângulos': 'Medium, 5 thousand triangles', 'Forte, 1.500 triângulos': 'Strong, 1,500 triangles', 'Extrema, 500 triângulos': 'Extreme, 500 triangles',
+  'Eixo da família A': 'Family A axis', 'Menos fatias na família A': 'Fewer slices in family A', 'Fatias da família A': 'Family A slices', 'Mais fatias na família A': 'More slices in family A',
+  'Eixo da família B': 'Family B axis', 'Menos fatias na família B': 'Fewer slices in family B', 'Fatias da família B': 'Family B slices', 'Mais fatias na família B': 'More slices in family B',
+  'Formato da placa': 'Plaque shape', 'Menos camadas na placa': 'Fewer plaque layers', 'Camadas da placa': 'Plaque layers', 'Mais camadas na placa': 'More plaque layers',
+  'Visualização': 'Viewer', 'Vista principal': 'Main view',
+  'Modo vitrine: como vai ficar na parede': 'Showcase mode: how it will look on the wall',
+  'Salvar a imagem da vitrine em PNG': 'Save the showcase image as PNG',
+  'Mostrar STL original': 'Show original STL', 'Centralizar câmera': 'Recenter camera', 'Tela cheia': 'Full screen',
+  'Janela de prévia': 'Preview window', 'Trocar a prévia com a vista principal': 'Swap the preview with the main view',
+  'Minimizar prévia': 'Minimize preview', 'Clique para trocar com a vista principal': 'Click to swap with the main view',
+  'Fechar': 'Close',
+  'Idioma': 'Language',
+  'Português do Brasil': 'Brazilian Portuguese',
+  'English, com sotaque jamaicano e sem pedir licença à Coroa': 'English, with a Jamaican accent and no permission asked from the Crown',
+};
+
 // Sistema de coordenadas 2D de cada plano de corte (eu × ev = en, mão direita).
 const FR = [
   { eu: [0, 0, -1], ev: [0, 1, 0], en: [1, 0, 0] },
@@ -1052,7 +1197,7 @@ function plaqueRings(kind) {
 function plaqueFromSVG(text) {
   const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
   const root = doc.documentElement;
-  if (root.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error('SVG inválido.');
+  if (root.nodeName.toLowerCase() !== 'svg' || doc.querySelector('parsererror')) throw new Error(tr('SVG inválido.', 'Invalid SVG.'));
   const host = document.createElement('div');
   host.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden';
   const svg = document.importNode(root, true);
@@ -1084,7 +1229,7 @@ function plaqueFromSVG(text) {
   } finally {
     host.remove();
   }
-  if (!rings.length) throw new Error('Não achei formas no SVG.');
+  if (!rings.length) throw new Error(tr('Não achei formas no SVG.', 'No shapes found in the SVG.'));
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const r of rings) for (const [x, y] of r) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   const s = y1 - y0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, K = 1e5;
@@ -1277,7 +1422,7 @@ function joinOverlaps(A, B, P, force = false) {
 // ---------- Geração das peças ----------
 function genEgg(P) {
   const a = P.axA, b = P.axB;
-  if (a === b) throw new Error('As famílias A e B precisam de eixos diferentes.');
+  if (a === b) throw new Error(tr('As famílias A e B precisam de eixos diferentes.', 'Families A and B need different axes.'));
   const w = 3 - a - b;
   const minA = Math.max(4, P.t * P.t);
   const make = (axis, count, fam) => {
@@ -1326,8 +1471,8 @@ function genEgg(P) {
 function genStacked(P) {
   const n = P.axS, [mn, mx] = axisRange(n, P);
   const count = Math.floor((mx - mn) / P.t + 1e-6);
-  if (count < 1) throw new Error('O modelo é mais fino que uma chapa.');
-  if (count > 600) throw new Error(`Seriam ${count} camadas. Aumente a espessura ou diminua o tamanho.`);
+  if (count < 1) throw new Error(tr('O modelo é mais fino que uma chapa.', 'The model is thinner than one sheet.'));
+  if (count > 600) throw new Error(tr(`Seriam ${count} camadas. Aumente a espessura ou diminua o tamanho.`, `That would be ${count} layers. Increase the thickness or reduce the size.`));
   const offset = ((mx - mn) - count * P.t) / 2;
   const minA = Math.max(4, P.t * P.t);
   const layers = [];
@@ -1576,10 +1721,10 @@ function sheetSVG(s, preview) {
     : `<rect width="${fmt(s.w)}" height="${fmt(s.h)}" rx="${fmt(s.w / 120)}" fill="#1D1915" stroke="#3A322A" ${sw}/>`;
   const C1 = preview ? '#FFA35C' : '#ff0000', C2 = preview ? '#5C8DF5' : '#0000ff';
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(s.w)}mm" height="${fmt(s.h)}mm" viewBox="0 0 ${fmt(s.w)} ${fmt(s.h)}"${preview ? ' class="draw" role="img"' : ''}>` + bg +
-    `<g id="corte" fill="${preview ? 'rgba(255,163,92,0.07)' : 'none'}" fill-rule="evenodd" stroke="${C1}" stroke-linejoin="round" ${sw}>${cut}</g>` +
+    `<g id="${tr('corte', 'cut')}" fill="${preview ? 'rgba(255,163,92,0.07)' : 'none'}" fill-rule="evenodd" stroke="${C1}" stroke-linejoin="round" ${sw}>${cut}</g>` +
     // Na tela, a gravação é uma linha azul mais fina e sem preenchimento (o corte é laranja, mais grosso e preenchido).
-    `<g id="gravacao" fill="none" stroke="${C2}" ${preview ? `stroke-width="${fmt(Math.max(s.w, s.h) / 650)}"` : sw}>${eng}</g>` +
-    `<g id="texto" fill="${C2}" stroke="none" font-family="${preview ? "'Geist Mono', monospace" : 'Arial, Helvetica, sans-serif'}" font-weight="${preview ? 600 : 400}" text-anchor="middle">${txt}</g></svg>`;
+    `<g id="${tr('gravacao', 'engrave')}" fill="none" stroke="${C2}" ${preview ? `stroke-width="${fmt(Math.max(s.w, s.h) / 650)}"` : sw}>${eng}</g>` +
+    `<g id="${tr('texto', 'text')}" fill="${C2}" stroke="none" font-family="${preview ? "'Geist Mono', monospace" : 'Arial, Helvetica, sans-serif'}" font-weight="${preview ? 600 : 400}" text-anchor="middle">${txt}</g></svg>`;
 }
 
 function sheetDXF(s) {
@@ -1588,8 +1733,8 @@ function sheetDXF(s) {
   const fy = y => fmt(s.h - y);
   L(0, 'SECTION', 2, 'HEADER', 9, '$ACADVER', 1, 'AC1009', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC');
   L(0, 'SECTION', 2, 'TABLES', 0, 'TABLE', 2, 'LAYER', 70, 2,
-    0, 'LAYER', 2, 'CORTE', 70, 0, 62, 1, 6, 'CONTINUOUS',
-    0, 'LAYER', 2, 'GRAVACAO', 70, 0, 62, 5, 6, 'CONTINUOUS',
+    0, 'LAYER', 2, LAYER_CUT(), 70, 0, 62, 1, 6, 'CONTINUOUS',
+    0, 'LAYER', 2, LAYER_ENG(), 70, 0, 62, 5, 6, 'CONTINUOUS',
     0, 'ENDTAB', 0, 'ENDSEC');
   L(0, 'SECTION', 2, 'ENTITIES');
   const poly = (ring, T, layer, closed) => {
@@ -1599,11 +1744,11 @@ function sheetDXF(s) {
   };
   for (const it of s.items) {
     const T = placement(it);
-    for (const po of it.p.polys) for (const ring of [po.outer, ...po.holes]) poly(ring, T, 'CORTE', true);
-    for (const gl of it.p.guides || []) poly(gl, T, 'GRAVACAO', false);
+    for (const po of it.p.polys) for (const ring of [po.outer, ...po.holes]) poly(ring, T, LAYER_CUT(), true);
+    for (const gl of it.p.guides || []) poly(gl, T, LAYER_ENG(), false);
     for (const lb of it.p.labels) {
       const [x, y] = T(lb.u, lb.v);
-      L(0, 'TEXT', 8, 'GRAVACAO', 10, fmt(x), 20, fy(y), 30, 0, 40, fmt(lb.size), 1, lb.text, 50, it.rot ? 270 : 0, 72, 1, 73, 2, 11, fmt(x), 21, fy(y), 31, 0);
+      L(0, 'TEXT', 8, LAYER_ENG(), 10, fmt(x), 20, fy(y), 30, 0, 40, fmt(lb.size), 1, lb.text, 50, it.rot ? 270 : 0, 72, 1, 73, 2, 11, fmt(x), 21, fy(y), 31, 0);
     }
   }
   L(0, 'ENDSEC', 0, 'EOF');
@@ -1685,19 +1830,19 @@ async function exportFiles(files, zipName) {
   download(await zip.generateAsync({ type: 'blob' }), zipName);
 }
 
-const base = () => `${state.name}_${state.P.mode === 'egg' ? 'eggcrate' : 'empilhado'}`;
+const base = () => `${state.name}_${state.P.mode === 'egg' ? 'eggcrate' : tr('empilhado', 'stacked')}`;
 
-$('exSVG').onclick = () => exportFiles(state.sheets.map((s, i) => ({ name: `${base()}_chapa${i + 1}.svg`, data: sheetSVG(s, false), type: 'image/svg+xml' })), `${base()}_svg.zip`);
-$('exDXF').onclick = () => exportFiles(state.sheets.map((s, i) => ({ name: `${base()}_chapa${i + 1}.dxf`, data: sheetDXF(s), type: 'application/dxf' })), `${base()}_dxf.zip`);
+$('exSVG').onclick = () => exportFiles(state.sheets.map((s, i) => ({ name: `${base()}_${tr('chapa', 'sheet')}${i + 1}.svg`, data: sheetSVG(s, false), type: 'image/svg+xml' })), `${base()}_svg.zip`);
+$('exDXF').onclick = () => exportFiles(state.sheets.map((s, i) => ({ name: `${base()}_${tr('chapa', 'sheet')}${i + 1}.dxf`, data: sheetDXF(s), type: 'application/dxf' })), `${base()}_dxf.zip`);
 $('ex3MF').onclick = async () => {
   const files = [];
-  for (const [i, s] of state.sheets.entries()) files.push({ name: `${base()}_mesa${i + 1}.3mf`, data: await sheet3MF(s, state.P.t), type: 'model/3mf' });
+  for (const [i, s] of state.sheets.entries()) files.push({ name: `${base()}_${tr('mesa', 'bed')}${i + 1}.3mf`, data: await sheet3MF(s, state.P.t), type: 'model/3mf' });
   exportFiles(files, `${base()}_3mf.zip`);
 };
-$('exSTL').onclick =() => exportFiles(state.pieces.map(p => ({ name: `${base()}_peca_${p.id}.stl`, data: stlBinary([pieceGeometry(p, state.P.t)]), type: 'model/stl' })), `${base()}_stl.zip`);
+$('exSTL').onclick =() => exportFiles(state.pieces.map(p => ({ name: `${base()}_${tr('peca', 'part')}_${p.id}.stl`, data: stlBinary([pieceGeometry(p, state.P.t)]), type: 'model/stl' })), `${base()}_stl.zip`);
 $('exSTLa').onclick = () => {
   const geoms = state.pieces.map(p => pieceGeometry(p, state.P.t).applyMatrix4(pieceMatrix(p, state.P.t)));
-  download(stlBinary(geoms), `${base()}_montado.stl`, 'model/stl');
+  download(stlBinary(geoms), `${base()}_${tr('montado', 'assembled')}.stl`, 'model/stl');
 };
 
 // ---------- Visualização 3D ----------
@@ -1822,7 +1967,7 @@ $('showcaseBtn').onclick = () => applyShowcase(!showcase.on);
 controls.addEventListener('start', () => { showcase.sway = false; });   // a pessoa assumiu a câmera
 $('snapBtn').onclick = () => {
   renderer.render(scene, camera);
-  renderer.domElement.toBlob(b => download(b, `${state.name}_vitrine.png`));
+  renderer.domElement.toBlob(b => download(b, `${state.name}_${tr('vitrine', 'showcase')}.png`));
 };
 
 function clearGroup(g) {
@@ -1947,12 +2092,12 @@ $('showModel').onchange = () => { modelGroup.visible = $('showModel').checked; }
 // ---------- Chapas (pré-visualização) ----------
 function renderSheets() {
   const el = $('sheets');
-  if (!state.sheets.length) { el.innerHTML = '<p class="no-pieces">Nenhuma peça gerada.</p>'; return; }
+  if (!state.sheets.length) { el.innerHTML = `<p class="no-pieces">${tr('Nenhuma peça gerada.', 'No parts generated.')}</p>`; return; }
   const w = sheetWord();
   el.innerHTML = '<div class="grid">' + state.sheets.map((s, i) =>
-    `<figure class="sheet" style="animation-delay:${Math.min(i * 0.06, 0.6)}s"><figcaption><b>${w} ${i + 1}</b><span>${fmt(s.w)} × ${fmt(s.h)} mm · ${s.items.length} peça(s)` +
-    `${s.over ? ` · <em class="warn">peça maior que a ${w.toLowerCase()}</em>` : ''}</span></figcaption>` +
-    `<div class="paper">${sheetSVG(s, true).replace('role="img"', `role="img" aria-label="${w} ${i + 1} com ${s.items.length} peças"`)}</div></figure>`).join('') + '</div>';
+    `<figure class="sheet" style="animation-delay:${Math.min(i * 0.06, 0.6)}s"><figcaption><b>${w} ${i + 1}</b><span>${fmt(s.w)} × ${fmt(s.h)} mm · ${s.items.length} ${tr('peça(s)', 'part(s)')}` +
+    `${s.over ? ` · <em class="warn">${tr(`peça maior que a ${w.toLowerCase()}`, `part larger than the ${w.toLowerCase()}`)}</em>` : ''}</span></figcaption>` +
+    `<div class="paper">${sheetSVG(s, true).replace('role="img"', `role="img" aria-label="${w} ${i + 1}: ${s.items.length} ${tr('peças', 'parts')}"`)}</div></figure>`).join('') + '</div>';
   updatePipTitle();
 }
 
@@ -1994,13 +2139,13 @@ function prepareModel() {
     max: [(max[0] - cx) * s, (max[1] - cy) * s, (max[2] - z0) * s],
   };
   const d = i => Math.round(state.bbox.max[i] - state.bbox.min[i]);
-  const tris = n => (n / 9).toLocaleString('pt-BR');
+  const tris = n => nfmt(n / 9);
   $('modelInfo').textContent = `${tris(raw.length)} tri` +
-    (raw !== state.rawFull ? ` (de ${tris(state.rawFull.length)})` : '') + ` · ${d(0)} × ${d(1)} × ${d(2)} mm`;
+    (raw !== state.rawFull ? ` (${tr('de', 'of')} ${tris(state.rawFull.length)})` : '') + ` · ${d(0)} × ${d(1)} × ${d(2)} mm`;
   $('dropText').textContent = state.name + '.stl';
   $('fileChip').hidden = false;
   $('fileName').textContent = state.name + '.stl';
-  $('fileTris').textContent = `${tris(raw.length)} triângulos`;
+  $('fileTris').textContent = `${tris(raw.length)} ${tr('triângulos', 'triangles')}`;
   buildModel3D();
 }
 
@@ -2027,11 +2172,21 @@ async function applySimplify() {
   const full = $('solid').checked && state.solidFull ? state.solidFull : state.rawFull;
   if (!target || full.length / 9 <= target) state.raw = full;
   else {
-    setStatus('Simplificando a malha…');
+    setStatus(tr('Simplificando a malha…', 'Simplifying the mesh…'));
     try { state.raw = await simplifyMesh(full, target); }
-    catch (err) { console.error(err); state.raw = full; setStatus('Não consegui simplificar; usando a malha original.', true); }
+    catch (err) { console.error(err); state.raw = full; setStatus(tr('Não consegui simplificar; usando a malha original.', 'Could not simplify; using the original mesh.'), true); }
   }
   prepareModel();
+}
+
+function updateSolidHint() {
+  const hollow = !!state.hollow;
+  $('solidHint').textContent = hollow
+    ? tr('Este STL parece oco: o interior foi preenchido para as peças saírem inteiras. Desmarque se os furos forem de propósito.',
+      'This STL looks hollow: the inside was filled so the parts come out whole. Uncheck it if the holes are intentional.')
+    : tr('Para STL oco (hollow): ignora a parede interna e corta cada peça inteira, sem o miolo vazado.',
+      'For hollow STLs: ignores the inner wall and cuts every part whole, without the empty core.');
+  $('solidHint').style.color = hollow ? 'var(--acc)' : '';
 }
 
 async function setModel(positions, name) {
@@ -2042,7 +2197,7 @@ async function setModel(positions, name) {
   $('empty3d').hidden = true;
   // Modelo oco? Mede na malha original (a simplificação estraga a parede interna fina),
   // liga "Preencher por dentro" sozinho e avisa (a pessoa pode desligar).
-  setStatus('Analisando o modelo…');
+  setStatus(tr('Analisando o modelo…', 'Analyzing the model…'));
   await new Promise(r => setTimeout(r, 20));
   const shells = analyzeShells(positions);
   state.solidFull = shells.solid;
@@ -2052,10 +2207,8 @@ async function setModel(positions, name) {
   $('solid').checked = hollow;
   await applySimplify();
   $('solid').checked = hollow;
-  $('solidHint').textContent = hollow
-    ? 'Este STL parece oco: o interior foi preenchido para as peças saírem inteiras. Desmarque se os furos forem de propósito.'
-    : 'Para STL oco (hollow): ignora a parede interna e corta cada peça inteira, sem o miolo vazado.';
-  $('solidHint').style.color = hollow ? 'var(--acc)' : '';
+  state.hollow = hollow;
+  updateSolidHint();
   frameCamera();
   if (showcase.on) applyShowcase(true);
   regenerate();
@@ -2064,14 +2217,14 @@ async function setModel(positions, name) {
 const loader = new STLLoader();
 function loadFile(file) {
   if (!file) return;
-  if (!/\.stl$/i.test(file.name)) { setStatus('O arquivo precisa ser .stl', true); return; }
-  setStatus('Lendo arquivo…');
+  if (!/\.stl$/i.test(file.name)) { setStatus(tr('O arquivo precisa ser .stl', 'The file must be an .stl'), true); return; }
+  setStatus(tr('Lendo arquivo…', 'Reading file…'));
   file.arrayBuffer().then(buf => {
     const g = loader.parse(buf);
     const pos = g.index ? g.toNonIndexed().attributes.position.array : g.attributes.position.array;
-    if (!pos.length) throw new Error('STL vazio.');
+    if (!pos.length) throw new Error(tr('STL vazio.', 'Empty STL.'));
     setModel(new Float32Array(pos), file.name);
-  }).catch(err => setStatus('Não consegui ler o STL: ' + err.message, true));
+  }).catch(err => setStatus(tr('Não consegui ler o STL: ', 'Could not read the STL: ') + err.message, true));
 }
 
 function demoGeometry() {
@@ -2147,7 +2300,7 @@ function spikes(m, n, z0, z1, y0, y1, h, r) {
 }
 
 const EXAMPLES = [
-  { id: 'lobo-guara', name: 'Lobo-guará', group: 'Cerrado', preset: { nA: 3, nB: 10, plaque: 'classic' }, build: m => m
+  { id: 'lobo-guara', name: 'Lobo-guará', en: 'Maned wolf', group: 'Cerrado', preset: { nA: 3, nB: 10, plaque: 'classic' }, build: m => m
     .tube([[0, -0.35, -0.02], [0, -0.35, 0.22], [0, 0, 0.85]], 0.55, 0.42, 16)
     .ell([0, 0.32, 0.45], [0.22, 0.42, 0.55])
     .ell([0, 0.12, 1.15], [0.4, 0.38, 0.45])
@@ -2156,7 +2309,7 @@ const EXAMPLES = [
     .ell([0, -0.04, 2.26], [0.09, 0.08, 0.07])
     .both(s => m.seg([s * 0.2, 0.38, 1.1], [s * 0.48, 1.25, 0.98], 0.2, 0.02, 10).ell([s * 0.26, 0.22, 1.45], [0.07, 0.06, 0.05])) },
 
-  { id: 'onca', name: 'Onça-pintada', group: 'Cerrado', preset: { nA: 3, nB: 9, plaque: 'heater' }, build: m => m
+  { id: 'onca', name: 'Onça-pintada', en: 'Jaguar', group: 'Cerrado', preset: { nA: 3, nB: 9, plaque: 'heater' }, build: m => m
     .tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, -0.05, 0.8]], 0.75, 0.6, 16)
     .ell([0, 0.1, 1.05], [0.62, 0.55, 0.55])
     .ell([0, 0.3, 1.3], [0.42, 0.14, 0.25])
@@ -2165,14 +2318,14 @@ const EXAMPLES = [
     .ell([0, -0.4, 1.35], [0.26, 0.14, 0.26])
     .both(s => m.ell([s * 0.4, -0.1, 1.18], [0.3, 0.3, 0.32]).ell([s * 0.42, 0.55, 0.88], [0.17, 0.17, 0.08], [0.3, 0, s * 0.5])) },
 
-  { id: 'capivara', name: 'Capivara', group: 'Cerrado', preset: { nA: 3, nB: 9, plaque: 'rrect' }, build: m => m
+  { id: 'capivara', name: 'Capivara', en: 'Capybara', group: 'Cerrado', preset: { nA: 3, nB: 9, plaque: 'rrect' }, build: m => m
     .tube([[0, -0.35, -0.02], [0, -0.35, 0.22], [0, -0.02, 0.7]], 0.7, 0.6, 16)
     .ell([0, 0.1, 1.05], [0.46, 0.5, 0.6])
     .ell([0, 0.32, 1.4], [0.33, 0.2, 0.55])
     .ell([0, -0.05, 1.75], [0.38, 0.42, 0.36])
     .both(s => m.ell([s * 0.27, 0.6, 0.85], [0.11, 0.13, 0.07]).ell([s * 0.32, 0.4, 1.22], [0.09, 0.09, 0.09]).ell([s * 0.13, 0.16, 2.07], [0.06, 0.05, 0.04])) },
 
-  { id: 'tamandua', name: 'Tamanduá-bandeira', group: 'Cerrado', preset: { nA: 3, nB: 12, plaque: 'oval' }, build: m => m
+  { id: 'tamandua', name: 'Tamanduá-bandeira', en: 'Giant anteater', group: 'Cerrado', preset: { nA: 3, nB: 12, plaque: 'oval' }, build: m => m
     .tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, -0.02, 0.7]], 0.62, 0.42, 16)
     .ell([0, 0.3, 0.32], [0.2, 0.35, 0.45])
     .ell([0, 0.05, 0.95], [0.33, 0.33, 0.42])
@@ -2180,7 +2333,7 @@ const EXAMPLES = [
     .ell([0, -0.29, 2.67], [0.07, 0.06, 0.06])
     .both(s => m.ell([s * 0.2, 0.34, 0.84], [0.08, 0.11, 0.05]).ell([s * 0.2, 0.15, 1.2], [0.05, 0.05, 0.05])) },
 
-  { id: 'veado-campeiro', name: 'Veado-campeiro', group: 'Cerrado', preset: { nA: 5, nB: 9, plaque: 'classic' }, build: m => m
+  { id: 'veado-campeiro', name: 'Veado-campeiro', en: 'Pampas deer', group: 'Cerrado', preset: { nA: 5, nB: 9, plaque: 'classic' }, build: m => m
     .tube([[0, -0.45, -0.02], [0, -0.45, 0.22], [0, 0.05, 0.75]], 0.5, 0.35, 16)
     .ell([0, 0.15, 1.0], [0.32, 0.3, 0.4])
     .seg([0, 0.08, 1.2], [0, -0.1, 1.85], 0.22, 0.12)
@@ -2191,7 +2344,7 @@ const EXAMPLES = [
       .tube([[s * 0.24, 0.8, 0.95], [s * 0.22, 1.05, 1.25]], 0.05, 0.025, 8)
       .tube([[s * 0.32, 1.25, 0.82], [s * 0.52, 1.5, 0.9]], 0.045, 0.02, 8)) },
 
-  { id: 'unicornio', name: 'Unicórnio', group: 'Fantasia', preset: { nA: 3, nB: 10, plaque: 'oval' }, build: m => {
+  { id: 'unicornio', name: 'Unicórnio', en: 'Unicorn', group: 'Fantasia', preset: { nA: 3, nB: 10, plaque: 'oval' }, build: m => {
     m.tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, 0.3, 0.6]], 0.62, 0.42, 16)
       .ell([0, 0.45, 0.85], [0.31, 0.33, 0.38])
       .seg([0, 0.38, 1.0], [0, -0.12, 1.75], 0.27, 0.2)
@@ -2205,7 +2358,7 @@ const EXAMPLES = [
     return m;
   } },
 
-  { id: 'dragao-oriental', name: 'Dragão oriental', group: 'Fantasia', preset: { nA: 5, nB: 14, plaque: 'classic' }, build: m => {
+  { id: 'dragao-oriental', name: 'Dragão oriental', en: 'Eastern dragon', group: 'Fantasia', preset: { nA: 5, nB: 14, plaque: 'classic' }, build: m => {
     m.tube([[0, -0.5, -0.02], [0, -0.5, 0.2], [0, -0.2, 0.42], [0, 0.05, 0.7]], 0.42, 0.36, 16)
       .ell([0, 0.15, 1.0], [0.38, 0.32, 0.45])
       .seg([0, 0.12, 1.2], [0, 0.05, 1.9], 0.28, 0.2)
@@ -2222,7 +2375,7 @@ const EXAMPLES = [
     return m;
   } },
 
-  { id: 'dragao-alado', name: 'Dragão alado', group: 'Fantasia', preset: { nA: 7, nB: 17, plaque: 'heater' }, build: m => {
+  { id: 'dragao-alado', name: 'Dragão alado', en: 'Winged dragon', group: 'Fantasia', preset: { nA: 7, nB: 17, plaque: 'heater' }, build: m => {
     m.tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, 0.05, 0.75]], 0.5, 0.4, 16)
       .ell([0, 0.15, 1.0], [0.36, 0.3, 0.45])
       .seg([0, 0.1, 1.2], [0, -0.02, 2.05], 0.26, 0.12)
@@ -2236,7 +2389,7 @@ const EXAMPLES = [
     return m;
   } },
 
-  { id: 'tiranossauro', name: 'Tiranossauro rex', group: 'Pré-história', preset: { nA: 3, nB: 11, plaque: 'hex' }, build: m => m
+  { id: 'tiranossauro', name: 'Tiranossauro rex', en: 'Tyrannosaurus rex', group: 'Pré-história', preset: { nA: 3, nB: 11, plaque: 'hex' }, build: m => m
     .tube([[0, -0.4, -0.02], [0, -0.4, 0.22], [0, 0, 0.6]], 0.62, 0.5, 16)
     .ell([0, 0.15, 1.0], [0.44, 0.43, 0.62])
     .seg([0, 0.12, 1.4], [0, 0.02, 2.25], 0.36, 0.25)
@@ -2274,9 +2427,10 @@ function exampleThumb(ex) {
 function renderGallery(container) {
   container.innerHTML = '';
   for (const group of ['Cerrado', 'Fantasia', 'Pré-história']) {
+    const groupName = { Cerrado: tr('Cerrado', 'Brazilian Cerrado'), Fantasia: tr('Fantasia', 'Fantasy'), 'Pré-história': tr('Pré-história', 'Prehistoric') }[group];
     const h = document.createElement('h3');
     h.className = 'gal-h';
-    h.textContent = group;
+    h.textContent = groupName;
     container.appendChild(h);
     const grid = document.createElement('div');
     grid.className = 'gal-grid';
@@ -2284,7 +2438,7 @@ function renderGallery(container) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'ex-card';
-      b.innerHTML = `<img alt="" src="${exampleThumb(ex)}"><span>${ex.name}</span>`;
+      b.innerHTML = `<img alt="" src="${exampleThumb(ex)}"><span>${tr(ex.name, ex.en)}</span>`;
       b.onclick = () => loadExample(ex);
       grid.appendChild(b);
     }
@@ -2347,11 +2501,11 @@ function showLooseNote(loose, P) {
   const s = loose === 1 ? '' : 's';
   $('looseText').textContent = !loose ? msg
     : (msg ? msg + ' ' : '') + (P.dropLoose
-      ? `${loose} parte${s} solta${s} removida${s}: não se prendia${loose === 1 ? '' : 'm'} a nenhuma outra peça.`
-      : `${loose} parte${s} solta${s}, em vermelho: não se prende${loose === 1 ? '' : 'm'} a nenhuma outra peça.`);
+      ? tr(`${loose} parte${s} solta${s} removida${s}: não se prendia${loose === 1 ? '' : 'm'} a nenhuma outra peça.`, `${loose} loose part${s} removed: not attached to any other part.`)
+      : tr(`${loose} parte${s} solta${s}, em vermelho: não se prende${loose === 1 ? '' : 'm'} a nenhuma outra peça.`, `${loose} loose part${s}, in red: not attached to any other part.`));
   $('autoFix').hidden = !loose || P.mode !== 'egg';
   $('looseToggle').hidden = !loose;
-  $('looseToggle').textContent = P.dropLoose ? 'Mostrar em vermelho' : 'Remover';
+  $('looseToggle').textContent = P.dropLoose ? tr('Mostrar em vermelho', 'Show in red') : tr('Remover', 'Remove');
   if (!loose) setTimeout(() => { if (note.classList.contains('ok')) { note.hidden = true; $('stage').classList.remove('has-note'); } }, 6000);
 }
 
@@ -2370,7 +2524,7 @@ $('autoFix').onclick = async () => {
   for (const dA of [0, 2, 4]) for (const dB of [0, 2, 4, 6]) tries.push([Math.min(60, base.nA + dA), Math.min(80, base.nB + dB)]);
   let best = null;
   for (const [k, [nA, nB]] of tries.entries()) {
-    setStatus(`Procurando a melhor combinação… ${k + 1}/${tries.length}`);
+    setStatus(tr(`Procurando a melhor combinação… ${k + 1}/${tries.length}`, `Looking for the best combination… ${k + 1}/${tries.length}`));
     await new Promise(r => setTimeout(r, 0));
     const P = { ...base, nA, nB };
     try {
@@ -2384,8 +2538,8 @@ $('autoFix').onclick = async () => {
   $('nA').value = best.nA; $('nB').value = best.nB;
   const changed = best.nA !== base.nA || best.nB !== base.nB;
   fixMessage = best.loose === 0
-    ? (changed ? `Pronto: com ${best.nA} espinhas e ${best.nB} costelas, tudo ficou conectado.` : 'Tudo já está conectado.')
-    : `Melhor combinação: ${best.nA} espinhas e ${best.nB} costelas.`;
+    ? (changed ? tr(`Pronto: com ${best.nA} espinhas e ${best.nB} costelas, tudo ficou conectado.`, `Done: with ${best.nA} spines and ${best.nB} ribs, everything is connected.`) : tr('Tudo já está conectado.', 'Everything is already connected.'))
+    : tr(`Melhor combinação: ${best.nA} espinhas e ${best.nB} costelas.`, `Best combination: ${best.nA} spines and ${best.nB} ribs.`);
   state.animateNext = changed;
   regenerate();
 };
@@ -2409,10 +2563,10 @@ function regenerate() {
         modelGroup.visible = $('showModel').checked;
         renderSheets();
         const over = state.sheets.filter(s => s.over).length, word = sheetWord().toLowerCase();
-        const noCustom = P.plaque === 'custom' && !state.customPlaque ? ' · escolha o arquivo da placa' : '';
-        const tooTall = P.dest === 'fdm' && P.bedZ > 0 && Math.max(P.t, P.tp) > P.bedZ ? ' · espessura maior que a altura da impressora' : '';
-        setStatus(`${pieces.length} peças em ${state.sheets.length} ${word}(s) de ${P.sheetW}×${P.sheetH} mm` +
-          (over ? ` · ${over} peça(s) maior(es) que a ${word}` : '') + noCustom + tooTall + ` · ${Math.round(performance.now() - t0)} ms`, over > 0 || !!tooTall);
+        const noCustom = P.plaque === 'custom' && !state.customPlaque ? tr(' · escolha o arquivo da placa', ' · choose the plaque file') : '';
+        const tooTall = P.dest === 'fdm' && P.bedZ > 0 && Math.max(P.t, P.tp) > P.bedZ ? tr(' · espessura maior que a altura da impressora', ' · thicker than the printer height') : '';
+        setStatus(tr(`${pieces.length} peças em ${state.sheets.length} ${word}(s) de ${P.sheetW}×${P.sheetH} mm`, `${pieces.length} parts on ${state.sheets.length} ${word}(s) of ${P.sheetW}×${P.sheetH} mm`) +
+          (over ? tr(` · ${over} peça(s) maior(es) que a ${word}`, ` · ${over} part(s) larger than the ${word}`) : '') + noCustom + tooTall + ` · ${Math.round(performance.now() - t0)} ms`, over > 0 || !!tooTall);
         for (const id of ['exSVG', 'exDXF', 'ex3MF', 'exSTL', 'exSTLa', 'exportBtn']) $(id).disabled = !pieces.length;
       } catch (err) {
         console.error(err);
@@ -2424,15 +2578,17 @@ function regenerate() {
   }, 250);
 }
 
-const HINTS = {
-  egg: 'Duas famílias de fatias que se cruzam com encaixes até a metade. Monta sem cola, com aquele visual vazado das cabeças de troféu.',
-  stack: 'Fatias paralelas coladas uma sobre a outra, formando um bloco sólido em "curvas de nível". Usa mais material.',
-};
+const HINTS = () => ({
+  egg: tr('Duas famílias de fatias que se cruzam com encaixes até a metade. Monta sem cola, com aquele visual vazado das cabeças de troféu.',
+    'Two families of slices that cross with half-depth slots. No glue needed, with that open look of trophy heads.'),
+  stack: tr('Fatias paralelas coladas uma sobre a outra, formando um bloco sólido em "curvas de nível". Usa mais material.',
+    'Parallel slices glued on top of each other into a solid block of "contour lines". Uses more material.'),
+});
 function syncMode() {
   const m = document.querySelector('input[name=mode]:checked').value;
   $('eggOpts').hidden = m !== 'egg';
   $('stackOpts').hidden = m !== 'stack';
-  $('modeHint').textContent = HINTS[m];
+  $('modeHint').textContent = HINTS()[m];
 }
 
 // Laser x impressora 3D: cada destino guarda os próprios valores de material e chapa/mesa.
@@ -2442,7 +2598,7 @@ const destValues = {
   fdm: { size: 200, t: 2.5, fit: 0.2, sw: 256, sh: 256, gap: 5, margin: 5 },
 };
 let curDest = 'laser';
-const sheetWord = () => curDest === 'fdm' ? 'Mesa' : 'Chapa';
+const sheetWord = () => curDest === 'fdm' ? tr('Mesa', 'Bed') : tr('Chapa', 'Sheet');
 function syncDest() {
   const d = document.querySelector('input[name=dest]:checked').value;
   if (d !== curDest) {
@@ -2457,11 +2613,11 @@ function syncDest() {
   $('mStack').disabled = fdm;
   if (fdm) $('mEgg').checked = true;
   $('fdmModeHint').hidden = !fdm;
-  $('tLabel').textContent = fdm ? 'Espessura de cada peça' : 'Espessura da chapa';
-  $('sheetTitle').textContent = fdm ? 'Mesa da impressora' : 'Chapa';
-  $('swLabel').textContent = fdm ? 'Largura (X)' : 'Largura';
-  $('shLabel').textContent = fdm ? 'Profundidade (Y)' : 'Altura';
-  $('tabSheets').textContent = fdm ? 'Mesas' : 'Chapas';
+  $('tLabel').textContent = fdm ? tr('Espessura de cada peça', 'Thickness of each part') : tr('Espessura da chapa', 'Sheet thickness');
+  $('sheetTitle').textContent = fdm ? tr('Mesa da impressora', 'Printer bed') : tr('Chapa', 'Sheet');
+  $('swLabel').textContent = fdm ? tr('Largura (X)', 'Width (X)') : tr('Largura', 'Width');
+  $('shLabel').textContent = fdm ? tr('Profundidade (Y)', 'Depth (Y)') : tr('Altura', 'Height');
+  $('tabSheets').textContent = fdm ? tr('Mesas', 'Beds') : tr('Chapas', 'Sheets');
   $('labelsRow').hidden = fdm;
   $('pBorderRow').hidden = fdm;
   syncMode();
@@ -2473,7 +2629,7 @@ function syncDest() {
 function updateOutputs() {
   document.querySelectorAll('output[data-out]').forEach(o => {
     const v = parseFloat($(o.dataset.out).value) || 0;
-    o.textContent = v.toFixed(+o.dataset.dec).replace('.', ',') + o.dataset.unit;
+    o.textContent = (lang === 'en' ? v.toFixed(+o.dataset.dec) : v.toFixed(+o.dataset.dec).replace('.', ',')) + o.dataset.unit;
   });
 }
 
@@ -2502,7 +2658,7 @@ $('plaqueFile').onchange = async e => {
   const file = e.target.files[0];
   if (!file) return;
   if (!/\.svg$/i.test(file.name) && file.type !== 'image/svg+xml') {
-    setStatus('O formato da placa precisa ser um arquivo SVG.', true);
+    setStatus(tr('O formato da placa precisa ser um arquivo SVG.', 'The plaque shape must be an SVG file.'), true);
     return;
   }
   try {
@@ -2511,7 +2667,7 @@ $('plaqueFile').onchange = async e => {
     regenerate();
   } catch (err) {
     console.error(err);
-    setStatus('Não consegui ler o arquivo da placa: ' + err.message, true);
+    setStatus(tr('Não consegui ler o arquivo da placa: ', 'Could not read the plaque file: ') + err.message, true);
   }
 };
 
@@ -2574,11 +2730,11 @@ $('gallery').addEventListener('click', e => {   // clicar fora da janela fecha
 });
 
 // ---------- Ladrilhos (low-poly e placa) controlam os <select> escondidos ----------
-const SIMP_LABEL = { 0: 'Original', 20000: 'Leve · 20.000 tri', 5000: 'Média · 5.000 tri', 1500: 'Forte · 1.500 tri', 500: 'Extrema · 500 tri' };
+const SIMP_LABEL = () => ({ 0: 'Original', 20000: tr('Leve · 20.000 tri', 'Light · 20,000 tri'), 5000: tr('Média · 5.000 tri', 'Medium · 5,000 tri'), 1500: tr('Forte · 1.500 tri', 'Strong · 1,500 tri'), 500: tr('Extrema · 500 tri', 'Extreme · 500 tri') });
 function syncTiles() {
   document.querySelectorAll('[data-simp]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.simp === $('simp').value)));
   document.querySelectorAll('[data-plaque]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.plaque === $('plaque').value)));
-  $('simpOut').textContent = SIMP_LABEL[$('simp').value];
+  $('simpOut').textContent = SIMP_LABEL()[$('simp').value];
 }
 document.querySelectorAll('[data-simp]').forEach(b => b.onclick = () => {
   if ($('simp').value === b.dataset.simp) return;
@@ -2646,8 +2802,8 @@ function updatePipTitle() {
   if (!viewState) return;
   const fdm = curDest === 'fdm';
   $('pipTitle').textContent = viewState.main === '3d'
-    ? `${sheetWord()} 1${state.sheets.length > 1 ? ` de ${state.sheets.length}` : ''} · ${fdm ? 'imprimindo' : 'cortando'}`
-    : 'Montagem 3D';
+    ? `${sheetWord()} 1${state.sheets.length > 1 ? ` ${tr('de', 'of')} ${state.sheets.length}` : ''} · ${fdm ? tr('imprimindo', 'printing') : tr('cortando', 'cutting')}`
+    : tr('Montagem 3D', '3D assembly');
 }
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => { viewState.main = b.dataset.view; layoutViews(); });
 $('pipSwap').onclick = () => { viewState.main = viewState.main === '3d' ? 'sheets' : '3d'; layoutViews(); };
@@ -2663,6 +2819,61 @@ $('fullscreen').onclick = () => {
   else $('stage').requestFullscreen?.();
 };
 $('showModel').addEventListener('change', () => $('showModel').parentElement.setAttribute('aria-pressed', String($('showModel').checked)));
+
+// ---------- Troca de idioma ----------
+// Textos fixos: guarda o original em português de cada nó e troca pelo dicionário EN.
+// As áreas montadas pelo código (chapas, galeria) são refeitas na língua certa.
+const origText = new WeakMap(), origAttr = new WeakMap();
+const keyOf = t => t.replace(/\s+/g, ' ').trim();
+function applyStatic() {
+  const skip = 'script, style, #sheets, .gal-grid, .gal-h';
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: n => n.parentElement && n.parentElement.closest(skip) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+  });
+  for (let n; (n = walker.nextNode());) {
+    if (!origText.has(n)) {
+      if (!(keyOf(n.nodeValue) in EN)) continue;
+      origText.set(n, n.nodeValue);
+    }
+    const raw = origText.get(n);
+    n.nodeValue = lang === 'en' ? raw.replace(raw.trim(), EN[keyOf(raw)]) : raw;
+  }
+  document.querySelectorAll('[aria-label], [title]').forEach(el => {
+    let o = origAttr.get(el);
+    if (!o) {
+      o = {};
+      for (const a of ['aria-label', 'title']) { const v = el.getAttribute(a); if (v && v in EN) o[a] = v; }
+      origAttr.set(el, o);
+    }
+    for (const a in o) el.setAttribute(a, lang === 'en' ? EN[o[a]] : o[a]);
+  });
+  document.documentElement.lang = lang === 'en' ? 'en' : 'pt-BR';
+  document.title = lang === 'en' ? EN['Laserlayer · STL em peças para laser e impressora 3D'] : 'Laserlayer · STL em peças para laser e impressora 3D';
+  document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+}
+
+function setLang(l) {
+  if (l === lang) return;
+  lang = l;
+  try { localStorage.setItem('laserlayer.lang', l); } catch (e) {}
+  applyStatic();
+  // Refaz os textos que o código escreve.
+  syncDest();
+  syncTiles();
+  updateSolidHint();
+  for (const id of ['galleryInline', 'galleryDialog']) {
+    const box = $(id);
+    if (!box.querySelector('.gal-grid')) continue;
+    const lead = box.querySelector('.gal-lead');
+    renderGallery(box);
+    if (lead) box.prepend(lead);
+  }
+  if (state.raw) { prepareModel(); regenerate(); }
+  else setStatus(tr('Carregue um STL para começar.', 'Load an STL to get started.'));
+}
+document.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => setLang(b.dataset.lang));
+// Idioma inicial: o salvo, ou o do navegador.
+if (lang === 'en') { applyStatic(); syncDest(); syncTiles(); updateSolidHint(); }
 
 window.__laserLayer = { state, sheetSVG, sheetDXF, sheet3MF, stlBinary, pieceGeometry, setModel, demoGeometry, EXAMPLES, loadExample };
 </script>

@@ -15,6 +15,7 @@ Outros recursos:
 - **Partes soltas**: mapa de ligações entre as peças, pontes automáticas e um botão que testa mais espinhas e costelas até tudo ficar conectado.
 - **Modo vitrine**: textura de MDF, bordas queimadas pelo laser, sombra na parede e exportação em PNG.
 - **Janela de prévia** no canto, que troca de lugar com a vista principal.
+- **Português e inglês**: botão com as bandeiras do Brasil e da Jamaica. A escolha fica salva; na primeira visita vale o idioma do navegador. Em inglês, os arquivos exportados também saem em inglês (camadas CUT/ENGRAVE, nomes sheet/bed/part).
 
 Tudo roda no navegador. O STL é lido do computador da pessoa e nunca é enviado a nenhum servidor.
 
